@@ -1,8 +1,6 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
 const cors = require('cors');
-const helmet = require('helmet');
 require('dotenv').config();
 
 const app = express();
@@ -46,7 +44,6 @@ app.get(`/api/${API_VERSION}/health`, (req, res) => {
     version: API_VERSION
   });
 });
-
 
 // API Documentation endpoint
 app.get(`/api/${API_VERSION}/docs`, (req, res) => {
@@ -116,7 +113,7 @@ app.get(`/api/${API_VERSION}/docs`, (req, res) => {
   });
 });
 
-// 404 handler
+// Basic 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Endpoint not found',
@@ -124,296 +121,6 @@ app.use('*', (req, res) => {
     availableEndpoints: `Visit /api/${API_VERSION}/docs for API documentation`
   });
 });
-
-// Error handling middleware
-app.use(errorHandler);
-
-// Socket.IO middleware and connection handling
-io.use(authenticateSocket);
-
-io.on('connection', (socket) => {
-  console.log(`🔌 User ${socket.user.id} connected (${socket.user.first_name} ${socket.user.last_name})`);
-  
-  // Join user to their own room for private messaging
-  socket.join(`user_${socket.user.id}`);
-  
-  // Handle joining job conversation rooms
-  socket.on('join_conversation', (data) => {
-    const { job_id, other_user_id } = data;
-    const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, other_user_id)}_${Math.max(socket.user.id, other_user_id)}`;
-    socket.join(roomId);
-    console.log(`👥 User ${socket.user.id} joined conversation room: ${roomId}`);
-  });
-
-  // Handle leaving conversation rooms
-  socket.on('leave_conversation', (data) => {
-    const { job_id, other_user_id } = data;
-    const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, other_user_id)}_${Math.max(socket.user.id, other_user_id)}`;
-    socket.leave(roomId);
-    console.log(`👋 User ${socket.user.id} left conversation room: ${roomId}`);
-  });
-
-  // Handle sending messages
-  socket.on('send_message', async (data) => {
-    try {
-      const { job_id, receiver_id, message } = data;
-      const Message = require('./models/Message');
-      
-      // Check if user can access this conversation
-      const canAccess = await Message.canUserAccessConversation(job_id, socket.user.id);
-      if (!canAccess) {
-        socket.emit('error', { message: 'Unauthorized to access this conversation' });
-        return;
-      }
-
-      // Save message to database
-      const messageId = await Message.create({
-        job_id: parseInt(job_id),
-        sender_id: socket.user.id,
-        receiver_id: parseInt(receiver_id),
-        message: message.trim()
-      });
-
-      // Get the full message details
-      const fullMessage = await Message.findById(messageId);
-      
-      // Create room ID for this conversation
-      const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, receiver_id)}_${Math.max(socket.user.id, receiver_id)}`;
-      
-      // Emit to conversation room
-      io.to(roomId).emit('new_message', {
-        id: messageId,
-        job_id: parseInt(job_id),
-        sender_id: socket.user.id,
-        receiver_id: parseInt(receiver_id),
-        message: message.trim(),
-        sender_first_name: socket.user.first_name,
-        sender_last_name: socket.user.last_name,
-        created_at: new Date().toISOString(),
-        is_read: false
-      });
-      
-      // Also send to receiver's personal room for notifications
-      io.to(`user_${receiver_id}`).emit('message_notification', {
-        id: messageId,
-        job_id: parseInt(job_id),
-        sender_id: socket.user.id,
-        sender_name: `${socket.user.first_name} ${socket.user.last_name}`,
-        message: message.trim(),
-        created_at: new Date().toISOString()
-      });
-
-      console.log(`💬 Message sent from ${socket.user.id} to ${receiver_id} in job ${job_id}`);
-    } catch (error) {
-      console.error('Error sending message:', error);
-      socket.emit('error', { message: 'Failed to send message' });
-    }
-  });
-
-  // Handle typing indicators
-  socket.on('typing', (data) => {
-    const { job_id, other_user_id } = data;
-    const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, other_user_id)}_${Math.max(socket.user.id, other_user_id)}`;
-    socket.to(roomId).emit('user_typing', {
-      user_id: socket.user.id,
-      user_name: `${socket.user.first_name} ${socket.user.last_name}`
-    });
-  });
-
-  socket.on('stop_typing', (data) => {
-    const { job_id, other_user_id } = data;
-    const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, other_user_id)}_${Math.max(socket.user.id, other_user_id)}`;
-    socket.to(roomId).emit('user_stop_typing', {
-      user_id: socket.user.id
-    });
-  });
-
-  // Handle marking messages as read
-  socket.on('mark_as_read', async (data) => {
-    try {
-      const { job_id } = data;
-      const Message = require('./models/Message');
-      await Message.markAsRead(job_id, socket.user.id);
-      
-      // Notify other users in the conversation that messages were read
-      const roomId = `job_${job_id}_conversation`;
-      socket.to(roomId).emit('messages_read', {
-        job_id: parseInt(job_id),
-        user_id: socket.user.id
-      });
-    } catch (error) {
-      console.error('Error marking messages as read:', error);
-    }
-  });
-
-  // Admin notification handlers
-  socket.on('join_admin_notifications', () => {
-    if (socket.user.role === 'admin') {
-      socket.join('admin_notifications');
-      console.log(`👑 Admin ${socket.user.id} joined admin notifications room`);
-    }
-  });
-
-  socket.on('send_admin_notification', async (data) => {
-    if (socket.user.role !== 'admin') {
-      socket.emit('error', { message: 'Unauthorized: Admin access required' });
-      return;
-    }
-
-    try {
-      const AdminNotification = require('./models/AdminNotification');
-      const notificationId = await AdminNotification.create({
-        ...data,
-        created_by: socket.user.id
-      });
-
-      // If immediate, process and send to users
-      if (data.schedule_type === 'immediate') {
-        await processAndSendNotification(notificationId, io);
-      }
-
-      socket.emit('admin_notification_created', { 
-        success: true, 
-        notification_id: notificationId 
-      });
-    } catch (error) {
-      console.error('Error creating admin notification:', error);
-      socket.emit('error', { message: 'Failed to create notification' });
-    }
-  });
-
-  socket.on('test_admin_notification', async (data) => {
-    if (socket.user.role !== 'admin') {
-      socket.emit('error', { message: 'Unauthorized: Admin access required' });
-      return;
-    }
-
-    try {
-      const { notification_id, test_user_id } = data;
-      const AdminNotification = require('./models/AdminNotification');
-      const User = require('./models/User');
-
-      const notification = await AdminNotification.findById(notification_id);
-      const testUser = await User.findById(test_user_id);
-
-      if (!notification || !testUser) {
-        socket.emit('error', { message: 'Notification or user not found' });
-        return;
-      }
-
-      // Send test notification
-      io.to(`user_${test_user_id}`).emit('admin_notification', {
-        type: 'admin_notification',
-        notification: { ...notification, isTest: true },
-        isTest: true
-      });
-
-      socket.emit('test_notification_sent', { success: true });
-    } catch (error) {
-      console.error('Error sending test notification:', error);
-      socket.emit('error', { message: 'Failed to send test notification' });
-    }
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`🔌 User ${socket.user.id} disconnected`);
-  });
-});
-
-// Helper function to process and send notifications
-async function processAndSendNotification(notificationId, io) {
-  try {
-    const AdminNotification = require('./models/AdminNotification');
-    const User = require('./models/User');
-    
-    const notification = await AdminNotification.findById(notificationId);
-    if (!notification) return;
-
-    // Get target users
-    let targetUsers = [];
-    
-    if (notification.target_audience === 'specific_users') {
-      // Get specific users
-      for (const userId of notification.target_user_ids) {
-        const user = await User.findById(userId);
-        if (user && user.is_active) targetUsers.push(user);
-      }
-    } else {
-      // Get users by role
-      const roleFilter = notification.target_audience === 'both' ? null : notification.target_audience;
-      const result = await User.getAllUsers(roleFilter, 1, 1000);
-      targetUsers = result.users.filter(user => user.is_active);
-    }
-
-    console.log(`📢 Sending admin notification "${notification.title}" to ${targetUsers.length} users`);
-
-    // Send notifications to each user
-    let deliveredCount = 0;
-    for (const user of targetUsers) {
-      try {
-        // Send real-time notification via Socket.io
-        io.to(`user_${user.id}`).emit('admin_notification', {
-          type: 'admin_notification',
-          notification: notification
-        });
-
-        // Mark as delivered
-        await AdminNotification.markAsDelivered(notificationId, user.id, {
-          delivery_method: notification.notification_type,
-          device_type: 'web',
-          user_agent: 'server-sent',
-          ip_address: 'system'
-        });
-
-        deliveredCount++;
-      } catch (error) {
-        console.error(`Failed to send notification to user ${user.id}:`, error);
-      }
-    }
-
-    // Update notification stats
-    await AdminNotification.update(notificationId, {
-      status: 'active',
-      total_sent: targetUsers.length,
-      total_delivered: deliveredCount
-    });
-
-    console.log(`✅ Admin notification processed: ${deliveredCount}/${targetUsers.length} delivered`);
-  } catch (error) {
-    console.error('Error processing notification:', error);
-    // Update notification status to failed
-    try {
-      await AdminNotification.update(notificationId, { status: 'failed' });
-    } catch (updateError) {
-      console.error('Failed to update notification status:', updateError);
-    }
-  }
-}
-
-// Periodic job to process scheduled notifications
-setInterval(async () => {
-  try {
-    const AdminNotification = require('./models/AdminNotification');
-    const scheduledNotifications = await AdminNotification.getScheduledNotifications(10);
-    
-    if (scheduledNotifications.length > 0) {
-      console.log(`Processing ${scheduledNotifications.length} scheduled notifications`);
-      
-      for (const notification of scheduledNotifications) {
-        try {
-          await processAndSendNotification(notification.id, io);
-        } catch (notificationError) {
-          console.error(`Failed to process notification ${notification.id}:`, notificationError.message);
-        }
-      }
-    }
-  } catch (error) {
-    // Only log if it's not a "table doesn't exist" error
-    if (!error.message.includes('admin_notifications')) {
-      console.error('Error processing scheduled notifications:', error.message);
-    }
-  }
-}, 60000); // Check every minute
 
 // Initialize and start server
 const startServer = async () => {
@@ -428,6 +135,15 @@ const startServer = async () => {
   setTimeout(() => {
     console.log('🔧 Loading additional services...');
     try {
+      // Import Socket.IO
+      const { Server } = require('socket.io');
+      const io = new Server(server, {
+        cors: {
+          origin: process.env.CLIENT_URL || "http://localhost:3001",
+          methods: ["GET", "POST"]
+        }
+      });
+
       // Import and setup services asynchronously
       const { createTables } = require('./config/database');
       const errorHandler = require('./middleware/errorHandler');
@@ -495,6 +211,293 @@ const startServer = async () => {
 
       // Error handling middleware
       app.use(errorHandler);
+
+      // Socket.IO middleware and connection handling
+      io.use(authenticateSocket);
+
+      io.on('connection', (socket) => {
+        console.log(`🔌 User ${socket.user.id} connected (${socket.user.first_name} ${socket.user.last_name})`);
+        
+        // Join user to their own room for private messaging
+        socket.join(`user_${socket.user.id}`);
+        
+        // Handle joining job conversation rooms
+        socket.on('join_conversation', (data) => {
+          const { job_id, other_user_id } = data;
+          const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, other_user_id)}_${Math.max(socket.user.id, other_user_id)}`;
+          socket.join(roomId);
+          console.log(`👥 User ${socket.user.id} joined conversation room: ${roomId}`);
+        });
+
+        // Handle leaving conversation rooms
+        socket.on('leave_conversation', (data) => {
+          const { job_id, other_user_id } = data;
+          const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, other_user_id)}_${Math.max(socket.user.id, other_user_id)}`;
+          socket.leave(roomId);
+          console.log(`👋 User ${socket.user.id} left conversation room: ${roomId}`);
+        });
+
+        // Handle sending messages
+        socket.on('send_message', async (data) => {
+          try {
+            const { job_id, receiver_id, message } = data;
+            const Message = require('./models/Message');
+            
+            // Check if user can access this conversation
+            const canAccess = await Message.canUserAccessConversation(job_id, socket.user.id);
+            if (!canAccess) {
+              socket.emit('error', { message: 'Unauthorized to access this conversation' });
+              return;
+            }
+
+            // Save message to database
+            const messageId = await Message.create({
+              job_id: parseInt(job_id),
+              sender_id: socket.user.id,
+              receiver_id: parseInt(receiver_id),
+              message: message.trim()
+            });
+
+            // Get the full message details
+            const fullMessage = await Message.findById(messageId);
+            
+            // Create room ID for this conversation
+            const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, receiver_id)}_${Math.max(socket.user.id, receiver_id)}`;
+            
+            // Emit to conversation room
+            io.to(roomId).emit('new_message', {
+              id: messageId,
+              job_id: parseInt(job_id),
+              sender_id: socket.user.id,
+              receiver_id: parseInt(receiver_id),
+              message: message.trim(),
+              sender_first_name: socket.user.first_name,
+              sender_last_name: socket.user.last_name,
+              created_at: new Date().toISOString(),
+              is_read: false
+            });
+            
+            // Also send to receiver's personal room for notifications
+            io.to(`user_${receiver_id}`).emit('message_notification', {
+              id: messageId,
+              job_id: parseInt(job_id),
+              sender_id: socket.user.id,
+              sender_name: `${socket.user.first_name} ${socket.user.last_name}`,
+              message: message.trim(),
+              created_at: new Date().toISOString()
+            });
+
+            console.log(`💬 Message sent from ${socket.user.id} to ${receiver_id} in job ${job_id}`);
+          } catch (error) {
+            console.error('Error sending message:', error);
+            socket.emit('error', { message: 'Failed to send message' });
+          }
+        });
+
+        // Handle typing indicators
+        socket.on('typing', (data) => {
+          const { job_id, other_user_id } = data;
+          const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, other_user_id)}_${Math.max(socket.user.id, other_user_id)}`;
+          socket.to(roomId).emit('user_typing', {
+            user_id: socket.user.id,
+            user_name: `${socket.user.first_name} ${socket.user.last_name}`
+          });
+        });
+
+        socket.on('stop_typing', (data) => {
+          const { job_id, other_user_id } = data;
+          const roomId = `job_${job_id}_conversation_${Math.min(socket.user.id, other_user_id)}_${Math.max(socket.user.id, other_user_id)}`;
+          socket.to(roomId).emit('user_stop_typing', {
+            user_id: socket.user.id
+          });
+        });
+
+        // Handle marking messages as read
+        socket.on('mark_as_read', async (data) => {
+          try {
+            const { job_id } = data;
+            const Message = require('./models/Message');
+            await Message.markAsRead(job_id, socket.user.id);
+            
+            // Notify other users in the conversation that messages were read
+            const roomId = `job_${job_id}_conversation`;
+            socket.to(roomId).emit('messages_read', {
+              job_id: parseInt(job_id),
+              user_id: socket.user.id
+            });
+          } catch (error) {
+            console.error('Error marking messages as read:', error);
+          }
+        });
+
+        // Admin notification handlers
+        socket.on('join_admin_notifications', () => {
+          if (socket.user.role === 'admin') {
+            socket.join('admin_notifications');
+            console.log(`👑 Admin ${socket.user.id} joined admin notifications room`);
+          }
+        });
+
+        socket.on('send_admin_notification', async (data) => {
+          if (socket.user.role !== 'admin') {
+            socket.emit('error', { message: 'Unauthorized: Admin access required' });
+            return;
+          }
+
+          try {
+            const AdminNotification = require('./models/AdminNotification');
+            const notificationId = await AdminNotification.create({
+              ...data,
+              created_by: socket.user.id
+            });
+
+            // If immediate, process and send to users
+            if (data.schedule_type === 'immediate') {
+              await processAndSendNotification(notificationId, io);
+            }
+
+            socket.emit('admin_notification_created', { 
+              success: true, 
+              notification_id: notificationId 
+            });
+          } catch (error) {
+            console.error('Error creating admin notification:', error);
+            socket.emit('error', { message: 'Failed to create notification' });
+          }
+        });
+
+        socket.on('test_admin_notification', async (data) => {
+          if (socket.user.role !== 'admin') {
+            socket.emit('error', { message: 'Unauthorized: Admin access required' });
+            return;
+          }
+
+          try {
+            const { notification_id, test_user_id } = data;
+            const AdminNotification = require('./models/AdminNotification');
+            const User = require('./models/User');
+
+            const notification = await AdminNotification.findById(notification_id);
+            const testUser = await User.findById(test_user_id);
+
+            if (!notification || !testUser) {
+              socket.emit('error', { message: 'Notification or user not found' });
+              return;
+            }
+
+            // Send test notification
+            io.to(`user_${test_user_id}`).emit('admin_notification', {
+              type: 'admin_notification',
+              notification: { ...notification, isTest: true },
+              isTest: true
+            });
+
+            socket.emit('test_notification_sent', { success: true });
+          } catch (error) {
+            console.error('Error sending test notification:', error);
+            socket.emit('error', { message: 'Failed to send test notification' });
+          }
+        });
+
+        socket.on('disconnect', () => {
+          console.log(`🔌 User ${socket.user.id} disconnected`);
+        });
+      });
+
+      // Helper function to process and send notifications
+      async function processAndSendNotification(notificationId, io) {
+        try {
+          const AdminNotification = require('./models/AdminNotification');
+          const User = require('./models/User');
+          
+          const notification = await AdminNotification.findById(notificationId);
+          if (!notification) return;
+
+          // Get target users
+          let targetUsers = [];
+          
+          if (notification.target_audience === 'specific_users') {
+            // Get specific users
+            for (const userId of notification.target_user_ids) {
+              const user = await User.findById(userId);
+              if (user && user.is_active) targetUsers.push(user);
+            }
+          } else {
+            // Get users by role
+            const roleFilter = notification.target_audience === 'both' ? null : notification.target_audience;
+            const result = await User.getAllUsers(roleFilter, 1, 1000);
+            targetUsers = result.users.filter(user => user.is_active);
+          }
+
+          console.log(`📢 Sending admin notification "${notification.title}" to ${targetUsers.length} users`);
+
+          // Send notifications to each user
+          let deliveredCount = 0;
+          for (const user of targetUsers) {
+            try {
+              // Send real-time notification via Socket.io
+              io.to(`user_${user.id}`).emit('admin_notification', {
+                type: 'admin_notification',
+                notification: notification
+              });
+
+              // Mark as delivered
+              await AdminNotification.markAsDelivered(notificationId, user.id, {
+                delivery_method: notification.notification_type,
+                device_type: 'web',
+                user_agent: 'server-sent',
+                ip_address: 'system'
+              });
+
+              deliveredCount++;
+            } catch (error) {
+              console.error(`Failed to send notification to user ${user.id}:`, error);
+            }
+          }
+
+          // Update notification stats
+          await AdminNotification.update(notificationId, {
+            status: 'active',
+            total_sent: targetUsers.length,
+            total_delivered: deliveredCount
+          });
+
+          console.log(`✅ Admin notification processed: ${deliveredCount}/${targetUsers.length} delivered`);
+        } catch (error) {
+          console.error('Error processing notification:', error);
+          // Update notification status to failed
+          try {
+            await AdminNotification.update(notificationId, { status: 'failed' });
+          } catch (updateError) {
+            console.error('Failed to update notification status:', updateError);
+          }
+        }
+      }
+
+      // Periodic job to process scheduled notifications
+      setInterval(async () => {
+        try {
+          const AdminNotification = require('./models/AdminNotification');
+          const scheduledNotifications = await AdminNotification.getScheduledNotifications(10);
+          
+          if (scheduledNotifications.length > 0) {
+            console.log(`Processing ${scheduledNotifications.length} scheduled notifications`);
+            
+            for (const notification of scheduledNotifications) {
+              try {
+                await processAndSendNotification(notification.id, io);
+              } catch (notificationError) {
+                console.error(`Failed to process notification ${notification.id}:`, notificationError.message);
+              }
+            }
+          }
+        } catch (error) {
+          // Only log if it's not a "table doesn't exist" error
+          if (!error.message.includes('admin_notifications')) {
+            console.error('Error processing scheduled notifications:', error.message);
+          }
+        }
+      }, 60000); // Check every minute
 
       // Initialize database
       createTables().then(() => {
