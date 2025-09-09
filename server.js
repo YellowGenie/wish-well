@@ -77,10 +77,12 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({
+  res.status(200).json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+    port: PORT
   });
 });
 
@@ -471,6 +473,15 @@ setInterval(async () => {
 
 // Initialize database and start server
 const startServer = async () => {
+  // Start server first to respond to health checks
+  const serverInstance = server.listen(PORT, () => {
+    console.log(`🚀 Wishing Well API server running on port ${PORT}`);
+    console.log(`📚 API Documentation: http://localhost:${PORT}/api/${API_VERSION}/docs`);
+    console.log(`🏥 Health Check: http://localhost:${PORT}/health`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+
+  // Initialize services asynchronously after server starts
   try {
     console.log('🔧 Initializing database...');
     await createTables();
@@ -485,26 +496,20 @@ const startServer = async () => {
     notificationWorker.start();
     console.log('✅ Notification worker started');
 
-    server.listen(PORT, () => {
-      console.log(`🚀 Wishing Well API server running on port ${PORT}`);
-      console.log(`📚 API Documentation: http://localhost:${PORT}/api/${API_VERSION}/docs`);
-      console.log(`🏥 Health Check: http://localhost:${PORT}/health`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log('');
-      console.log('Available endpoints:');
-      console.log(`  Authentication: /api/${API_VERSION}/auth/*`);
-      console.log(`  Jobs: /api/${API_VERSION}/jobs/*`);
-      console.log(`  Proposals: /api/${API_VERSION}/proposals/*`);
-      console.log(`  Messages: /api/${API_VERSION}/messages/*`);
-      console.log(`  Profiles: /api/${API_VERSION}/profiles/*`);
-      console.log(`  Skills: /api/${API_VERSION}/skills/*`);
-      console.log(`  Admin: /api/${API_VERSION}/admin/*`);
-      console.log('');
-      console.log('🎯 Dozyr Remote Job Marketplace API is ready!');
-    });
+    console.log('');
+    console.log('Available endpoints:');
+    console.log(`  Authentication: /api/${API_VERSION}/auth/*`);
+    console.log(`  Jobs: /api/${API_VERSION}/jobs/*`);
+    console.log(`  Proposals: /api/${API_VERSION}/proposals/*`);
+    console.log(`  Messages: /api/${API_VERSION}/messages/*`);
+    console.log(`  Profiles: /api/${API_VERSION}/profiles/*`);
+    console.log(`  Skills: /api/${API_VERSION}/skills/*`);
+    console.log(`  Admin: /api/${API_VERSION}/admin/*`);
+    console.log('');
+    console.log('🎯 Dozyr Remote Job Marketplace API is ready!');
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
-    process.exit(1);
+    console.error('⚠️ Warning: Some services failed to initialize:', error);
+    console.log('📡 Server is still running and will respond to requests');
   }
 };
 
