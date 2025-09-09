@@ -10,17 +10,30 @@ const API_VERSION = process.env.API_VERSION || 'v1';
 
 // IMMEDIATE CORS fix - run before everything else
 app.use('*', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'https://dozyr.netlify.app');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://dozyr.co',
+    'https://www.dozyr.co', 
+    'https://dozyr.netlify.app',
+    'https://dozyr.vercel.app',
+    'http://localhost:3001',
+    'http://localhost:3000'
+  ];
+  
+  // Always set these headers for allowed origins
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  }
   
   if (req.method === 'OPTIONS') {
-    console.log(`🚀 IMMEDIATE CORS: Handling OPTIONS for ${req.headers.origin}`);
+    console.log(`🚀 IMMEDIATE CORS: Handling OPTIONS for ${origin}`);
     return res.status(200).end();
   }
   
-  console.log(`🚀 IMMEDIATE CORS: Set headers for ${req.headers.origin}`);
+  console.log(`🚀 IMMEDIATE CORS: Set headers for ${origin}`);
   next();
 });
 
