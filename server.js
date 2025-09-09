@@ -163,11 +163,18 @@ const startServer = async () => {
   setTimeout(() => {
     console.log('🔧 Loading additional services...');
     try {
-      // Import Socket.IO
+      // Import Socket.IO with hardcoded CORS origins
       const { Server } = require('socket.io');
       const io = new Server(server, {
         cors: {
-          origin: allowedOrigins,
+          origin: [
+            'https://dozyr.co',
+            'https://www.dozyr.co', 
+            'https://dozyr.netlify.app',
+            'https://dozyr.vercel.app',
+            'http://localhost:3001',
+            'http://localhost:3000'
+          ],
           methods: ["GET", "POST"],
           credentials: true
         }
