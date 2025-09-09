@@ -1,0 +1,170 @@
+name: CI/CD Pipeline - Backend
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: dozyr_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Wait for MySQL
+      run: |
+        for i in {30..0}; do
+          if mysqladmin ping -h"127.0.0.1" --silent; then
+            break
+          fi
+          echo 'MySQL is unavailable - sleeping'
+          sleep 1
+        done
+        if [ "$i" = 0 ]; then
+          echo 'MySQL is unavailable - giving up'
+          exit 1
+        fi
+        echo 'MySQL is up - executing command'
+    
+    - name: Setup test database
+      run: |
+        mysql -h 127.0.0.1 -u root -proot -e "CREATE DATABASE IF NOT EXISTS dozyr_test;"
+      
+    - name: Run tests
+      run: npm test
+      env:
+        NODE_ENV: test
+        DB_HOST: 127.0.0.1
+        DB_USER: root
+        DB_PASSWORD: root
+        DB_NAME: dozyr_test
+        JWT_SECRET: test-secret-key
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci --production
+    
+    - name: Create deployment package
+      run: |
+        mkdir -p deploy
+        cp -r . deploy/
+        cd deploy
+        rm -rf node_modules
+        npm ci --production
+        tar -czf ../backend-deploy.tar.gz .
+    
+    - name: Upload deployment artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: backend-deployment
+        path: backend-deploy.tar.gz
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Download deployment artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: backend-deployment
+    
+    - name: Deploy to shared hosting
+      run: |
+        # Install SSH client
+        sudo apt-get update
+        sudo apt-get install -y openssh-client
+        
+        # Setup SSH key
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts
+        
+        # Upload and deploy
+        scp backend-deploy.tar.gz ${{ secrets.SSH_USER }}@${{ secrets.HOST }}:/tmp/
+        ssh ${{ secrets.SSH_USER }}@${{ secrets.HOST }} << 'EOF'
+          cd ${{ secrets.DEPLOY_PATH }}
+          
+          # Backup current deployment
+          if [ -d "current" ]; then
+            cp -r current backup-$(date +%Y%m%d-%H%M%S)
+          fi
+          
+          # Extract new deployment
+          mkdir -p new-deploy
+          cd new-deploy
+          tar -xzf /tmp/backend-deploy.tar.gz
+          
+          # Install dependencies
+          npm ci --production
+          
+          # Run database migrations if needed
+          # npm run migrate
+          
+          # Stop current application
+          pm2 stop dozyr-backend || true
+          
+          # Switch to new deployment
+          cd ..
+          rm -rf current
+          mv new-deploy current
+          cd current
+          
+          # Start application
+          pm2 start ecosystem.config.js --env production || pm2 start server.js --name "dozyr-backend"
+          pm2 save
+          
+          # Cleanup
+          rm /tmp/backend-deploy.tar.gz
+        EOF
+
+  notify:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Notify deployment status
+      if: github.ref == 'refs/heads/main'
+      run: |
+        if [ "${{ needs.deploy.result }}" == "success" ]; then
+          echo "✅ Backend deployment successful"
+        else
+          echo "❌ Backend deployment failed"
+        fi
