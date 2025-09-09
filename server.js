@@ -8,6 +8,22 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 const API_VERSION = process.env.API_VERSION || 'v1';
 
+// IMMEDIATE CORS fix - run before everything else
+app.use('*', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', 'https://dozyr.netlify.app');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  if (req.method === 'OPTIONS') {
+    console.log(`🚀 IMMEDIATE CORS: Handling OPTIONS for ${req.headers.origin}`);
+    return res.status(200).end();
+  }
+  
+  console.log(`🚀 IMMEDIATE CORS: Set headers for ${req.headers.origin}`);
+  next();
+});
+
 // CORS configuration - hardcoded for reliability
 const allowedOrigins = [
   'https://dozyr.co',
@@ -64,8 +80,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Basic middleware
-app.use(cors(corsOptions));
+// Remove cors middleware - handle manually only
+// app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
