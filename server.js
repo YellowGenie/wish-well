@@ -5,66 +5,15 @@ const cors = require('cors');
 const helmet = require('helmet');
 require('dotenv').config();
 
-const { createTables } = require('./config/database');
-const errorHandler = require('./middleware/errorHandler');
-const emailService = require('./services/emailService');
-const pushService = require('./services/pushService');
-const notificationWorker = require('./services/notificationWorker');
-const { apiLimiter, authLimiter, messageLimiter } = require('./middleware/rateLimiter');
-const { authenticateSocket } = require('./middleware/auth');
-
-// Import routes
-const authRoutes = require('./routes/auth');
-const jobRoutes = require('./routes/jobs');
-const proposalRoutes = require('./routes/proposals');
-const messageRoutes = require('./routes/messages');
-const profileRoutes = require('./routes/profiles');
-const skillRoutes = require('./routes/skills');
-const adminRoutes = require('./routes/admin');
-const paymentRoutes = require('./routes/payments');
-const notificationRoutes = require('./routes/notifications');
-const packageRoutes = require('./routes/packages');
-const adminNotificationRoutes = require('./routes/adminNotifications');
-const adminNotificationTemplateRoutes = require('./routes/adminNotificationTemplates');
-const userNotificationRoutes = require('./routes/userNotifications');
-const interviewRoutes = require('./routes/interviews');
-const conversationRoutes = require('./routes/conversations');
-const userRoutes = require('./routes/users');
-
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3001",
-    methods: ["GET", "POST"]
-  }
-});
 const PORT = process.env.PORT || 3000;
 const API_VERSION = process.env.API_VERSION || 'v1';
 
-// Security middleware
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "http://localhost:3013", "http://localhost:3002"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-    },
-  },
-}));
+// Basic middleware
 app.use(cors());
-
-// Rate limiting
-app.use(apiLimiter);
-
-// Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-
-// Serve static files for uploads
-app.use('/uploads', express.static('uploads'));
 
 // Health check endpoint
 app.get('/', (req, res) => {
@@ -82,8 +31,7 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
-    port: PORT,
-    servicesReady: servicesReady
+    port: PORT
   });
 });
 
@@ -95,28 +43,10 @@ app.get(`/api/${API_VERSION}/health`, (req, res) => {
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
     port: PORT,
-    version: API_VERSION,
-    servicesReady: servicesReady
+    version: API_VERSION
   });
 });
 
-// API Routes with rate limiting
-app.use(`/api/${API_VERSION}/auth`, authLimiter, authRoutes);
-app.use(`/api/${API_VERSION}/jobs`, jobRoutes);
-app.use(`/api/${API_VERSION}/proposals`, proposalRoutes);
-app.use(`/api/${API_VERSION}/messages`, messageLimiter, messageRoutes);
-app.use(`/api/${API_VERSION}/profiles`, profileRoutes);
-app.use(`/api/${API_VERSION}/skills`, skillRoutes);
-app.use(`/api/${API_VERSION}/admin`, adminRoutes);
-app.use(`/api/${API_VERSION}/payments`, paymentRoutes);
-app.use(`/api/${API_VERSION}/notifications`, notificationRoutes);
-app.use(`/api/${API_VERSION}/packages`, packageRoutes);
-app.use(`/api/${API_VERSION}/admin/notifications`, adminNotificationRoutes);
-app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTemplateRoutes);
-app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes);
-app.use(`/api/${API_VERSION}/interviews`, messageLimiter, interviewRoutes);
-app.use(`/api/${API_VERSION}/conversations`, messageLimiter, conversationRoutes);
-app.use(`/api/${API_VERSION}/users`, apiLimiter, userRoutes);
 
 // API Documentation endpoint
 app.get(`/api/${API_VERSION}/docs`, (req, res) => {
@@ -485,61 +415,99 @@ setInterval(async () => {
   }
 }, 60000); // Check every minute
 
-// Global service status tracking
-let servicesReady = false;
-
-// Initialize database and start server
+// Initialize and start server
 const startServer = async () => {
-  // Start server first to respond to health checks immediately
-  const serverInstance = server.listen(PORT, () => {
+  // Start server immediately
+  server.listen(PORT, () => {
     console.log(`🚀 Wishing Well API server running on port ${PORT}`);
-    console.log(`📚 API Documentation: http://localhost:${PORT}/api/${API_VERSION}/docs`);
     console.log(`🏥 Health Check: http://localhost:${PORT}/health`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 
-  // Initialize services asynchronously with timeout
-  const initServices = async () => {
+  // Load all services after server is running
+  setTimeout(() => {
+    console.log('🔧 Loading additional services...');
     try {
-      console.log('🔧 Initializing database...');
+      // Import and setup services asynchronously
+      const { createTables } = require('./config/database');
+      const errorHandler = require('./middleware/errorHandler');
+      const emailService = require('./services/emailService');
+      const pushService = require('./services/pushService');
+      const notificationWorker = require('./services/notificationWorker');
+      const { apiLimiter, authLimiter, messageLimiter } = require('./middleware/rateLimiter');
+      const { authenticateSocket } = require('./middleware/auth');
       
-      // Add timeout to database initialization
-      const dbTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Database initialization timeout')), 30000)
-      );
-      
-      await Promise.race([createTables(), dbTimeout]);
-      console.log('✅ Database tables created successfully');
+      // Import routes
+      const authRoutes = require('./routes/auth');
+      const jobRoutes = require('./routes/jobs');
+      const proposalRoutes = require('./routes/proposals');
+      const messageRoutes = require('./routes/messages');
+      const profileRoutes = require('./routes/profiles');
+      const skillRoutes = require('./routes/skills');
+      const adminRoutes = require('./routes/admin');
+      const paymentRoutes = require('./routes/payments');
+      const notificationRoutes = require('./routes/notifications');
+      const packageRoutes = require('./routes/packages');
+      const adminNotificationRoutes = require('./routes/adminNotifications');
+      const adminNotificationTemplateRoutes = require('./routes/adminNotificationTemplates');
+      const userNotificationRoutes = require('./routes/userNotifications');
+      const interviewRoutes = require('./routes/interviews');
+      const conversationRoutes = require('./routes/conversations');
+      const userRoutes = require('./routes/users');
 
-      console.log('🔧 Initializing notification services...');
-      await emailService.loadSettings();
-      await pushService.loadSettings();
-      console.log('✅ Notification services initialized');
+      // Add security middleware
+      const helmet = require('helmet');
+      app.use(helmet({
+        crossOriginResourcePolicy: { policy: "cross-origin" },
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: ["'self'"],
+            imgSrc: ["'self'", "data:", "http://localhost:3013", "http://localhost:3002"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'"],
+          },
+        },
+      }));
 
-      // Start notification worker (works in development mode without SMTP)
-      notificationWorker.start();
-      console.log('✅ Notification worker started');
+      // Add rate limiting
+      app.use(apiLimiter);
 
-      servicesReady = true;
-      console.log('');
-      console.log('Available endpoints:');
-      console.log(`  Authentication: /api/${API_VERSION}/auth/*`);
-      console.log(`  Jobs: /api/${API_VERSION}/jobs/*`);
-      console.log(`  Proposals: /api/${API_VERSION}/proposals/*`);
-      console.log(`  Messages: /api/${API_VERSION}/messages/*`);
-      console.log(`  Profiles: /api/${API_VERSION}/profiles/*`);
-      console.log(`  Skills: /api/${API_VERSION}/skills/*`);
-      console.log(`  Admin: /api/${API_VERSION}/admin/*`);
-      console.log('');
-      console.log('🎯 Dozyr Remote Job Marketplace API is ready!');
+      // Serve static files for uploads
+      app.use('/uploads', express.static('uploads'));
+
+      // API Routes with rate limiting
+      app.use(`/api/${API_VERSION}/auth`, authLimiter, authRoutes);
+      app.use(`/api/${API_VERSION}/jobs`, jobRoutes);
+      app.use(`/api/${API_VERSION}/proposals`, proposalRoutes);
+      app.use(`/api/${API_VERSION}/messages`, messageLimiter, messageRoutes);
+      app.use(`/api/${API_VERSION}/profiles`, profileRoutes);
+      app.use(`/api/${API_VERSION}/skills`, skillRoutes);
+      app.use(`/api/${API_VERSION}/admin`, adminRoutes);
+      app.use(`/api/${API_VERSION}/payments`, paymentRoutes);
+      app.use(`/api/${API_VERSION}/notifications`, notificationRoutes);
+      app.use(`/api/${API_VERSION}/packages`, packageRoutes);
+      app.use(`/api/${API_VERSION}/admin/notifications`, adminNotificationRoutes);
+      app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTemplateRoutes);
+      app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes);
+      app.use(`/api/${API_VERSION}/interviews`, messageLimiter, interviewRoutes);
+      app.use(`/api/${API_VERSION}/conversations`, messageLimiter, conversationRoutes);
+      app.use(`/api/${API_VERSION}/users`, apiLimiter, userRoutes);
+
+      // Error handling middleware
+      app.use(errorHandler);
+
+      // Initialize database
+      createTables().then(() => {
+        console.log('✅ Database initialized');
+      }).catch(error => {
+        console.log('⚠️ Database initialization failed:', error.message);
+      });
+
+      console.log('✅ Services loaded');
     } catch (error) {
-      console.error('⚠️ Warning: Some services failed to initialize:', error.message);
-      console.log('📡 Server is still running and will respond to basic requests');
+      console.log('⚠️ Some services failed to load:', error.message);
     }
-  };
-
-  // Run initialization without blocking server startup
-  initServices();
+  }, 1000);
 };
 
 // Handle graceful shutdown
