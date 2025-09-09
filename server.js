@@ -36,6 +36,34 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
+// Debug logging for CORS
+console.log('🔧 CORS Configuration:', corsOptions);
+console.log('🔧 Allowed Origins:', allowedOrigins);
+
+// Manual CORS middleware to override any existing CORS
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  console.log(`🔍 Request from origin: ${origin}`);
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    console.log(`✅ CORS: Allowing origin ${origin}`);
+  } else {
+    console.log(`❌ CORS: Blocking origin ${origin}`);
+  }
+  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  
+  if (req.method === 'OPTIONS') {
+    console.log(`🔄 Handling OPTIONS preflight for ${origin}`);
+    return res.status(200).end();
+  }
+  
+  next();
+});
+
 // Basic middleware
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
