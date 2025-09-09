@@ -86,6 +86,18 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Health check endpoint under API version path
+app.get(`/api/${API_VERSION}/health`, (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+    port: PORT,
+    version: API_VERSION
+  });
+});
+
 // API Routes with rate limiting
 app.use(`/api/${API_VERSION}/auth`, authLimiter, authRoutes);
 app.use(`/api/${API_VERSION}/jobs`, jobRoutes);
