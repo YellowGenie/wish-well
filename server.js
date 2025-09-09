@@ -8,7 +8,7 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 const API_VERSION = process.env.API_VERSION || 'v1';
 
-// IMMEDIATE CORS fix - run before everything else
+// AGGRESSIVE CORS fix - override Railway proxy headers
 app.use('*', (req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
@@ -20,20 +20,28 @@ app.use('*', (req, res, next) => {
     'http://localhost:3000'
   ];
   
-  // Always set these headers for allowed origins
+  console.log(`🔍 Request from origin: ${origin}`);
+  
+  // Force override Railway's CORS headers
   if (!origin || allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin || '*');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    // Remove any existing CORS headers set by Railway
+    res.removeHeader('Access-Control-Allow-Origin');
+    res.removeHeader('access-control-allow-origin');
+    
+    // Set our own CORS headers
+    res.setHeader('Access-Control-Allow-Origin', origin || 'https://dozyr.netlify.app');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    
+    console.log(`✅ CORS: Allowing origin ${origin || 'https://dozyr.netlify.app'}`);
   }
   
   if (req.method === 'OPTIONS') {
-    console.log(`🚀 IMMEDIATE CORS: Handling OPTIONS for ${origin}`);
+    console.log(`🚀 CORS: Handling OPTIONS for ${origin}`);
     return res.status(200).end();
   }
   
-  console.log(`🚀 IMMEDIATE CORS: Set headers for ${origin}`);
   next();
 });
 
@@ -196,6 +204,30 @@ app.get(`/api/${API_VERSION}/docs`, (req, res) => {
     },
     userRoles: ['talent', 'manager', 'admin']
   });
+});
+
+// Final CORS override middleware - runs after all routes
+app.use('*', (req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://dozyr.co',
+    'https://www.dozyr.co', 
+    'https://dozyr.netlify.app',
+    'https://dozyr.vercel.app',
+    'http://localhost:3001',
+    'http://localhost:3000'
+  ];
+  
+  if (!origin || allowedOrigins.includes(origin)) {
+    // Force override any headers that might have been set by Railway or other middleware
+    res.setHeader('Access-Control-Allow-Origin', origin || 'https://dozyr.netlify.app');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    console.log(`🔄 FINAL CORS: Set origin to ${origin || 'https://dozyr.netlify.app'}`);
+  }
+  
+  next();
 });
 
 // Basic 404 handler
