@@ -82,7 +82,8 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
-    port: PORT
+    port: PORT,
+    servicesReady: servicesReady
   });
 });
 
@@ -94,7 +95,8 @@ app.get(`/api/${API_VERSION}/health`, (req, res) => {
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
     port: PORT,
-    version: API_VERSION
+    version: API_VERSION,
+    servicesReady: servicesReady
   });
 });
 
@@ -483,9 +485,12 @@ setInterval(async () => {
   }
 }, 60000); // Check every minute
 
+// Global service status tracking
+let servicesReady = false;
+
 // Initialize database and start server
 const startServer = async () => {
-  // Start server first to respond to health checks
+  // Start server first to respond to health checks immediately
   const serverInstance = server.listen(PORT, () => {
     console.log(`🚀 Wishing Well API server running on port ${PORT}`);
     console.log(`📚 API Documentation: http://localhost:${PORT}/api/${API_VERSION}/docs`);
@@ -493,36 +498,48 @@ const startServer = async () => {
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 
-  // Initialize services asynchronously after server starts
-  try {
-    console.log('🔧 Initializing database...');
-    await createTables();
-    console.log('✅ Database tables created successfully');
+  // Initialize services asynchronously with timeout
+  const initServices = async () => {
+    try {
+      console.log('🔧 Initializing database...');
+      
+      // Add timeout to database initialization
+      const dbTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Database initialization timeout')), 30000)
+      );
+      
+      await Promise.race([createTables(), dbTimeout]);
+      console.log('✅ Database tables created successfully');
 
-    console.log('🔧 Initializing notification services...');
-    await emailService.loadSettings();
-    await pushService.loadSettings();
-    console.log('✅ Notification services initialized');
+      console.log('🔧 Initializing notification services...');
+      await emailService.loadSettings();
+      await pushService.loadSettings();
+      console.log('✅ Notification services initialized');
 
-    // Start notification worker (works in development mode without SMTP)
-    notificationWorker.start();
-    console.log('✅ Notification worker started');
+      // Start notification worker (works in development mode without SMTP)
+      notificationWorker.start();
+      console.log('✅ Notification worker started');
 
-    console.log('');
-    console.log('Available endpoints:');
-    console.log(`  Authentication: /api/${API_VERSION}/auth/*`);
-    console.log(`  Jobs: /api/${API_VERSION}/jobs/*`);
-    console.log(`  Proposals: /api/${API_VERSION}/proposals/*`);
-    console.log(`  Messages: /api/${API_VERSION}/messages/*`);
-    console.log(`  Profiles: /api/${API_VERSION}/profiles/*`);
-    console.log(`  Skills: /api/${API_VERSION}/skills/*`);
-    console.log(`  Admin: /api/${API_VERSION}/admin/*`);
-    console.log('');
-    console.log('🎯 Dozyr Remote Job Marketplace API is ready!');
-  } catch (error) {
-    console.error('⚠️ Warning: Some services failed to initialize:', error);
-    console.log('📡 Server is still running and will respond to requests');
-  }
+      servicesReady = true;
+      console.log('');
+      console.log('Available endpoints:');
+      console.log(`  Authentication: /api/${API_VERSION}/auth/*`);
+      console.log(`  Jobs: /api/${API_VERSION}/jobs/*`);
+      console.log(`  Proposals: /api/${API_VERSION}/proposals/*`);
+      console.log(`  Messages: /api/${API_VERSION}/messages/*`);
+      console.log(`  Profiles: /api/${API_VERSION}/profiles/*`);
+      console.log(`  Skills: /api/${API_VERSION}/skills/*`);
+      console.log(`  Admin: /api/${API_VERSION}/admin/*`);
+      console.log('');
+      console.log('🎯 Dozyr Remote Job Marketplace API is ready!');
+    } catch (error) {
+      console.error('⚠️ Warning: Some services failed to initialize:', error.message);
+      console.log('📡 Server is still running and will respond to basic requests');
+    }
+  };
+
+  // Run initialization without blocking server startup
+  initServices();
 };
 
 // Handle graceful shutdown
