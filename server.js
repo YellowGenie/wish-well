@@ -22,20 +22,17 @@ app.use('*', (req, res, next) => {
   
   console.log(`🔍 Request from origin: ${origin}`);
   
-  // Force override Railway's CORS headers
-  if (!origin || allowedOrigins.includes(origin)) {
-    // Remove any existing CORS headers set by Railway
-    res.removeHeader('Access-Control-Allow-Origin');
-    res.removeHeader('access-control-allow-origin');
-    
-    // Set our own CORS headers
-    res.setHeader('Access-Control-Allow-Origin', origin || 'https://dozyr.netlify.app');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-    
-    console.log(`✅ CORS: Allowing origin ${origin || 'https://dozyr.netlify.app'}`);
-  }
+  // Force override Railway's CORS headers with wildcard
+  // Remove any existing CORS headers set by Railway
+  res.removeHeader('Access-Control-Allow-Origin');
+  res.removeHeader('access-control-allow-origin');
+  
+  // Set wildcard CORS headers to bypass Railway proxy
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  console.log(`🌐 CORS: Allowing ALL origins with wildcard (*) for origin: ${origin}`);
   
   if (req.method === 'OPTIONS') {
     console.log(`🚀 CORS: Handling OPTIONS for ${origin}`);
@@ -218,14 +215,11 @@ app.use('*', (req, res, next) => {
     'http://localhost:3000'
   ];
   
-  if (!origin || allowedOrigins.includes(origin)) {
-    // Force override any headers that might have been set by Railway or other middleware
-    res.setHeader('Access-Control-Allow-Origin', origin || 'https://dozyr.netlify.app');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-    console.log(`🔄 FINAL CORS: Set origin to ${origin || 'https://dozyr.netlify.app'}`);
-  }
+  // Force override any headers that might have been set by Railway or other middleware
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  console.log(`🔄 FINAL CORS: Set wildcard origin (*) for request from ${origin}`);
   
   next();
 });
