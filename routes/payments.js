@@ -5,6 +5,20 @@ const { auth } = require('../middleware/auth');
 const Payment = require('../models/Payment');
 const CustomerCard = require('../models/CustomerCard');
 
+// Middleware to check if Stripe is available
+const checkStripe = (req, res, next) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Payment system unavailable',
+      message: 'Stripe is not configured. Payments are currently disabled.'
+    });
+  }
+  next();
+};
+
+// Apply Stripe check to all payment routes that need it
+router.use(['/create-payment-intent', '/confirm-payment', '/cards', '/webhook'], checkStripe);
+
 // Create payment intent for job posting
 router.post('/create-payment-intent', auth, async (req, res) => {
   try {
