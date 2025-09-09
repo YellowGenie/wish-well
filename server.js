@@ -8,10 +8,15 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 const API_VERSION = process.env.API_VERSION || 'v1';
 
-// CORS configuration
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:3001', 'http://localhost:3000'];
+// CORS configuration - hardcoded for reliability
+const allowedOrigins = [
+  'https://dozyr.co',
+  'https://www.dozyr.co', 
+  'https://dozyr.netlify.app',
+  'https://dozyr.vercel.app',
+  'http://localhost:3001',
+  'http://localhost:3000'
+];
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -19,9 +24,10 @@ const corsOptions = {
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.includes(origin)) {
+      console.log(`✅ CORS allowed origin: ${origin}`);
       callback(null, true);
     } else {
-      console.log(`CORS blocked origin: ${origin}. Allowed origins:`, allowedOrigins);
+      console.log(`❌ CORS blocked origin: ${origin}. Allowed origins:`, allowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },
