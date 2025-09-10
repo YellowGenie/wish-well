@@ -194,7 +194,8 @@ app.get('/', (req, res) => {
     message: 'Wishing Well API - Dozyr Remote Job Marketplace',
     version: API_VERSION,
     status: 'running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    routesLoaded: 'v2 - immediate loading'
   });
 });
 
