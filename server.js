@@ -146,6 +146,7 @@ app.use(apiLimiter);
 app.use('/uploads', express.static('uploads'));
 
 // API Routes with rate limiting (temporarily disabled for auth)
+console.log(`🔧 Mounting auth routes at /api/${API_VERSION}/auth`);
 app.use(`/api/${API_VERSION}/auth`, authRoutes);
 app.use(`/api/${API_VERSION}/jobs`, jobRoutes);
 app.use(`/api/${API_VERSION}/proposals`, proposalRoutes);
@@ -195,7 +196,8 @@ app.get('/', (req, res) => {
     version: API_VERSION,
     status: 'running',
     timestamp: new Date().toISOString(),
-    routesLoaded: 'v2 - immediate loading'
+    routesLoaded: 'v3 - debug deployment',
+    authRoutes: authRoutes ? 'loaded' : 'missing'
   });
 });
 
