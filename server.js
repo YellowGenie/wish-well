@@ -167,6 +167,16 @@ app.use(`/api/${API_VERSION}/users`, apiLimiter, userRoutes);
 // Error handling middleware
 app.use(errorHandler);
 
+// Force deployment test - simple auth endpoint
+app.post('/api/v1/auth/login', (req, res) => {
+  console.log('🚨 DIRECT AUTH ENDPOINT HIT');
+  res.json({
+    message: 'Direct auth endpoint working',
+    timestamp: new Date().toISOString(),
+    body: req.body
+  });
+});
+
 // CORS test endpoint
 app.get('/cors-test', (req, res) => {
   // Manually set CORS headers for testing
@@ -196,7 +206,7 @@ app.get('/', (req, res) => {
     version: API_VERSION,
     status: 'running',
     timestamp: new Date().toISOString(),
-    routesLoaded: 'v3 - debug deployment',
+    routesLoaded: 'v4 - direct auth endpoint',
     authRoutes: authRoutes ? 'loaded' : 'missing'
   });
 });
