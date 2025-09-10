@@ -211,6 +211,14 @@ app.get('/', (req, res) => {
   });
 });
 
+app.get('/test-deploy', (req, res) => {
+  res.json({
+    message: 'RAILWAY DEPLOYMENT TEST - v5',
+    timestamp: new Date().toISOString(),
+    working: true
+  });
+});
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
