@@ -145,8 +145,8 @@ app.use(apiLimiter);
 // Serve static files for uploads
 app.use('/uploads', express.static('uploads'));
 
-// API Routes with rate limiting
-app.use(`/api/${API_VERSION}/auth`, authLimiter, authRoutes);
+// API Routes with rate limiting (temporarily disabled for auth)
+app.use(`/api/${API_VERSION}/auth`, authRoutes);
 app.use(`/api/${API_VERSION}/jobs`, jobRoutes);
 app.use(`/api/${API_VERSION}/proposals`, proposalRoutes);
 app.use(`/api/${API_VERSION}/messages`, messageLimiter, messageRoutes);
