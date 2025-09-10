@@ -103,6 +103,69 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Load middleware and routes immediately
+const helmet = require('helmet');
+const errorHandler = require('./middleware/errorHandler');
+const { apiLimiter, authLimiter, messageLimiter } = require('./middleware/rateLimiter');
+
+// Import routes
+const authRoutes = require('./routes/auth');
+const jobRoutes = require('./routes/jobs');
+const proposalRoutes = require('./routes/proposals');
+const messageRoutes = require('./routes/messages');
+const profileRoutes = require('./routes/profiles');
+const skillRoutes = require('./routes/skills');
+const adminRoutes = require('./routes/admin');
+const paymentRoutes = require('./routes/payments');
+const notificationRoutes = require('./routes/notifications');
+const packageRoutes = require('./routes/packages');
+const adminNotificationRoutes = require('./routes/adminNotifications');
+const adminNotificationTemplateRoutes = require('./routes/adminNotificationTemplates');
+const userNotificationRoutes = require('./routes/userNotifications');
+const interviewRoutes = require('./routes/interviews');
+const conversationRoutes = require('./routes/conversations');
+const userRoutes = require('./routes/users');
+
+// Add security middleware
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "http://localhost:3013", "http://localhost:3002"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+    },
+  },
+}));
+
+// Add rate limiting
+app.use(apiLimiter);
+
+// Serve static files for uploads
+app.use('/uploads', express.static('uploads'));
+
+// API Routes with rate limiting
+app.use(`/api/${API_VERSION}/auth`, authLimiter, authRoutes);
+app.use(`/api/${API_VERSION}/jobs`, jobRoutes);
+app.use(`/api/${API_VERSION}/proposals`, proposalRoutes);
+app.use(`/api/${API_VERSION}/messages`, messageLimiter, messageRoutes);
+app.use(`/api/${API_VERSION}/profiles`, profileRoutes);
+app.use(`/api/${API_VERSION}/skills`, skillRoutes);
+app.use(`/api/${API_VERSION}/admin`, adminRoutes);
+app.use(`/api/${API_VERSION}/payments`, paymentRoutes);
+app.use(`/api/${API_VERSION}/notifications`, notificationRoutes);
+app.use(`/api/${API_VERSION}/packages`, packageRoutes);
+app.use(`/api/${API_VERSION}/admin/notifications`, adminNotificationRoutes);
+app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTemplateRoutes);
+app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes);
+app.use(`/api/${API_VERSION}/interviews`, messageLimiter, interviewRoutes);
+app.use(`/api/${API_VERSION}/conversations`, messageLimiter, conversationRoutes);
+app.use(`/api/${API_VERSION}/users`, apiLimiter, userRoutes);
+
+// Error handling middleware
+app.use(errorHandler);
+
 // CORS test endpoint
 app.get('/cors-test', (req, res) => {
   // Manually set CORS headers for testing
@@ -287,71 +350,10 @@ const startServer = async () => {
 
       // Import and setup services asynchronously
       const { createTables } = require('./config/database');
-      const errorHandler = require('./middleware/errorHandler');
       const emailService = require('./services/emailService');
       const pushService = require('./services/pushService');
       const notificationWorker = require('./services/notificationWorker');
-      const { apiLimiter, authLimiter, messageLimiter } = require('./middleware/rateLimiter');
       const { authenticateSocket } = require('./middleware/auth');
-      
-      // Import routes
-      const authRoutes = require('./routes/auth');
-      const jobRoutes = require('./routes/jobs');
-      const proposalRoutes = require('./routes/proposals');
-      const messageRoutes = require('./routes/messages');
-      const profileRoutes = require('./routes/profiles');
-      const skillRoutes = require('./routes/skills');
-      const adminRoutes = require('./routes/admin');
-      const paymentRoutes = require('./routes/payments');
-      const notificationRoutes = require('./routes/notifications');
-      const packageRoutes = require('./routes/packages');
-      const adminNotificationRoutes = require('./routes/adminNotifications');
-      const adminNotificationTemplateRoutes = require('./routes/adminNotificationTemplates');
-      const userNotificationRoutes = require('./routes/userNotifications');
-      const interviewRoutes = require('./routes/interviews');
-      const conversationRoutes = require('./routes/conversations');
-      const userRoutes = require('./routes/users');
-
-      // Add security middleware
-      const helmet = require('helmet');
-      app.use(helmet({
-        crossOriginResourcePolicy: { policy: "cross-origin" },
-        contentSecurityPolicy: {
-          directives: {
-            defaultSrc: ["'self'"],
-            imgSrc: ["'self'", "data:", "http://localhost:3013", "http://localhost:3002"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'"],
-          },
-        },
-      }));
-
-      // Add rate limiting
-      app.use(apiLimiter);
-
-      // Serve static files for uploads
-      app.use('/uploads', express.static('uploads'));
-
-      // API Routes with rate limiting
-      app.use(`/api/${API_VERSION}/auth`, authLimiter, authRoutes);
-      app.use(`/api/${API_VERSION}/jobs`, jobRoutes);
-      app.use(`/api/${API_VERSION}/proposals`, proposalRoutes);
-      app.use(`/api/${API_VERSION}/messages`, messageLimiter, messageRoutes);
-      app.use(`/api/${API_VERSION}/profiles`, profileRoutes);
-      app.use(`/api/${API_VERSION}/skills`, skillRoutes);
-      app.use(`/api/${API_VERSION}/admin`, adminRoutes);
-      app.use(`/api/${API_VERSION}/payments`, paymentRoutes);
-      app.use(`/api/${API_VERSION}/notifications`, notificationRoutes);
-      app.use(`/api/${API_VERSION}/packages`, packageRoutes);
-      app.use(`/api/${API_VERSION}/admin/notifications`, adminNotificationRoutes);
-      app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTemplateRoutes);
-      app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes);
-      app.use(`/api/${API_VERSION}/interviews`, messageLimiter, interviewRoutes);
-      app.use(`/api/${API_VERSION}/conversations`, messageLimiter, conversationRoutes);
-      app.use(`/api/${API_VERSION}/users`, apiLimiter, userRoutes);
-
-      // Error handling middleware
-      app.use(errorHandler);
 
       // Socket.IO middleware and connection handling
       io.use(authenticateSocket);
