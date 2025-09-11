@@ -8,7 +8,7 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 const API_VERSION = process.env.API_VERSION || 'v1';
 
-// AGGRESSIVE CORS fix - override Railway proxy headers
+// Unified CORS middleware - handles all cases including undefined origins
 app.use('*', (req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
@@ -20,86 +20,35 @@ app.use('*', (req, res, next) => {
     'http://localhost:3000'
   ];
   
-  console.log(`🔍 Request from origin: ${origin}`);
+  console.log(`🔍 Request from origin: ${origin || 'undefined'}`);
   
-  // Force override Railway's CORS headers with wildcard
-  // Remove any existing CORS headers set by Railway
+  // Remove any existing CORS headers
   res.removeHeader('Access-Control-Allow-Origin');
   res.removeHeader('access-control-allow-origin');
   
-  // Set wildcard CORS headers to bypass Railway proxy
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // Handle undefined/null origins (mobile apps, Postman, etc.)
+  if (!origin || origin === 'null' || allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    console.log(`✅ CORS: Allowing origin ${origin || 'undefined/mobile'}`);
+  } else {
+    // For development, allow all origins. For production, you might want to be more strict
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    console.log(`🌐 CORS: Allowing unknown origin ${origin} (development mode)`);
+  }
+  
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-  console.log(`🌐 CORS: Allowing ALL origins with wildcard (*) for origin: ${origin}`);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   if (req.method === 'OPTIONS') {
-    console.log(`🚀 CORS: Handling OPTIONS for ${origin}`);
+    console.log(`🚀 CORS: Handling OPTIONS for ${origin || 'undefined'}`);
     return res.status(200).end();
   }
   
   next();
 });
 
-// CORS configuration - hardcoded for reliability
-const allowedOrigins = [
-  'https://dozyr.co',
-  'https://www.dozyr.co', 
-  'https://dozyr.netlify.app',
-  'https://dozyr.vercel.app',
-  'http://localhost:3001',
-  'http://localhost:3000'
-];
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
-      console.log(`✅ CORS allowed origin: ${origin}`);
-      callback(null, true);
-    } else {
-      console.log(`❌ CORS blocked origin: ${origin}. Allowed origins:`, allowedOrigins);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-};
-
-// Debug logging for CORS
-console.log('🔧 CORS Configuration:', corsOptions);
-console.log('🔧 Allowed Origins:', allowedOrigins);
-
-// Manual CORS middleware to override any existing CORS
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  console.log(`🔍 Request from origin: ${origin}`);
-  
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    console.log(`✅ CORS: Allowing origin ${origin}`);
-  } else {
-    console.log(`❌ CORS: Blocking origin ${origin}`);
-  }
-  
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  
-  if (req.method === 'OPTIONS') {
-    console.log(`🔄 Handling OPTIONS preflight for ${origin}`);
-    return res.status(200).end();
-  }
-  
-  next();
-});
-
-// Remove cors middleware - handle manually only
-// app.use(cors(corsOptions));
+// All CORS handling is done by the unified middleware above
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -117,11 +66,11 @@ const profileRoutes = require('./routes/profiles');
 const skillRoutes = require('./routes/skills');
 const adminRoutes = require('./routes/admin');
 const paymentRoutes = require('./routes/payments');
-const notificationRoutes = require('./routes/notifications');
+// const notificationRoutes = require('./routes/notifications'); // Disabled during migration
 const packageRoutes = require('./routes/packages');
-const adminNotificationRoutes = require('./routes/adminNotifications');
-const adminNotificationTemplateRoutes = require('./routes/adminNotificationTemplates');
-const userNotificationRoutes = require('./routes/userNotifications');
+// const adminNotificationRoutes = require('./routes/adminNotifications'); // Disabled during migration
+// const adminNotificationTemplateRoutes = require('./routes/adminNotificationTemplates'); // Disabled during migration  
+// const userNotificationRoutes = require('./routes/userNotifications'); // Disabled during migration
 const interviewRoutes = require('./routes/interviews');
 const conversationRoutes = require('./routes/conversations');
 const userRoutes = require('./routes/users');
@@ -155,11 +104,11 @@ app.use(`/api/${API_VERSION}/profiles`, profileRoutes);
 app.use(`/api/${API_VERSION}/skills`, skillRoutes);
 app.use(`/api/${API_VERSION}/admin`, adminRoutes);
 app.use(`/api/${API_VERSION}/payments`, paymentRoutes);
-app.use(`/api/${API_VERSION}/notifications`, notificationRoutes);
+// app.use(`/api/${API_VERSION}/notifications`, notificationRoutes); // Disabled during migration
 app.use(`/api/${API_VERSION}/packages`, packageRoutes);
-app.use(`/api/${API_VERSION}/admin/notifications`, adminNotificationRoutes);
-app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTemplateRoutes);
-app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes);
+// app.use(`/api/${API_VERSION}/admin/notifications`, adminNotificationRoutes); // Disabled during migration
+// app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTemplateRoutes); // Disabled during migration
+// app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes); // Disabled during migration
 app.use(`/api/${API_VERSION}/interviews`, messageLimiter, interviewRoutes);
 app.use(`/api/${API_VERSION}/conversations`, messageLimiter, conversationRoutes);
 app.use(`/api/${API_VERSION}/users`, apiLimiter, userRoutes);
@@ -341,6 +290,11 @@ app.use('*', (req, res) => {
 
 // Initialize and start server
 const startServer = async () => {
+  // Initialize email service first
+  console.log('🚀 Initializing core services...');
+  const emailService = require('./services/emailService');
+  await emailService.initializeTransporter();
+
   // Start server immediately
   server.listen(PORT, () => {
     console.log(`🚀 Wishing Well API server running on port ${PORT}`);
@@ -349,7 +303,7 @@ const startServer = async () => {
   });
 
   // Load all services after server is running
-  setTimeout(() => {
+  setTimeout(async () => {
     console.log('🔧 Loading additional services...');
     try {
       // Import Socket.IO with hardcoded CORS origins
@@ -369,9 +323,8 @@ const startServer = async () => {
         }
       });
 
-      // Import and setup services asynchronously
-      const { createTables } = require('./config/database');
-      const emailService = require('./services/emailService');
+      // Import and setup MongoDB connection
+      const { connectToMongoDB } = require('./config/mongodb');
       const pushService = require('./services/pushService');
       const notificationWorker = require('./services/notificationWorker');
       const { authenticateSocket } = require('./middleware/auth');
@@ -663,11 +616,11 @@ const startServer = async () => {
         }
       }, 60000); // Check every minute
 
-      // Initialize database
-      createTables().then(() => {
-        console.log('✅ Database initialized');
+      // Initialize MongoDB connection
+      connectToMongoDB().then(() => {
+        console.log('✅ MongoDB connected successfully');
       }).catch(error => {
-        console.log('⚠️ Database initialization failed:', error.message);
+        console.log('⚠️ MongoDB connection failed:', error.message);
       });
 
       console.log('✅ Services loaded');

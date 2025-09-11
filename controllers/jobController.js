@@ -4,7 +4,7 @@ const ManagerProfile = require('../models/ManagerProfile');
 const Skill = require('../models/Skill');
 const Payment = require('../models/Payment');
 const stripe = require('../config/stripe');
-const { pool } = require('../config/database');
+// MongoDB connection is handled through models
 
 class JobController {
   static validateCreateJob = [

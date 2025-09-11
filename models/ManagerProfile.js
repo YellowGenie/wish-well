@@ -1,198 +1,274 @@
-const { pool } = require('../config/database');
+const { mongoose } = require('../config/mongodb');
 
-class ManagerProfile {
-  static async create({ user_id, company_name, company_description, company_size, industry, location }) {
-    const [result] = await pool.execute(
-      'INSERT INTO manager_profiles (user_id, company_name, company_description, company_size, industry, location) VALUES (?, ?, ?, ?, ?, ?)',
-      [user_id, company_name, company_description, company_size, industry, location]
-    );
-    
-    return result.insertId;
+// ManagerProfile Schema
+const managerProfileSchema = new mongoose.Schema({
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    unique: true
+  },
+  company_name: {
+    type: String,
+    trim: true
+  },
+  company_description: {
+    type: String,
+    trim: true
+  },
+  company_size: {
+    type: String,
+    enum: ['1-10', '11-50', '51-200', '201-500', '500+']
+  },
+  industry: {
+    type: String,
+    trim: true
+  },
+  location: {
+    type: String,
+    trim: true
   }
-
-  static async findByUserId(user_id) {
-    const [rows] = await pool.execute(`
-      SELECT mp.*, u.first_name, u.last_name, u.email
-      FROM manager_profiles mp
-      JOIN users u ON mp.user_id = u.id
-      WHERE mp.user_id = ?
-    `, [user_id]);
-    
-    return rows[0];
+}, {
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
   }
+});
 
-  static async findById(id) {
-    const [rows] = await pool.execute(`
-      SELECT mp.*, u.first_name, u.last_name, u.email
-      FROM manager_profiles mp
-      JOIN users u ON mp.user_id = u.id
-      WHERE mp.id = ?
-    `, [id]);
-    
-    return rows[0];
-  }
+// Indexes
+managerProfileSchema.index({ user_id: 1 });
+managerProfileSchema.index({ industry: 1 });
+managerProfileSchema.index({ company_size: 1 });
 
-  static async update(user_id, updates) {
-    const fields = [];
-    const values = [];
-    
-    Object.keys(updates).forEach(key => {
-      if (updates[key] !== undefined) {
-        fields.push(`${key} = ?`);
-        values.push(updates[key]);
+// Static methods
+managerProfileSchema.statics.create = async function({ user_id, company_name, company_description, company_size, industry, location }) {
+  const profile = new this({ user_id, company_name, company_description, company_size, industry, location });
+  const savedProfile = await profile.save();
+  return savedProfile._id;
+};
+
+managerProfileSchema.statics.findByUserId = async function(user_id) {
+  return await this.findOne({ user_id })
+    .populate('user_id', 'first_name last_name email');
+};
+
+managerProfileSchema.statics.findById = async function(id) {
+  return await this.findOne({ _id: id })
+    .populate('user_id', 'first_name last_name email');
+};
+
+managerProfileSchema.statics.update = async function(user_id, updates) {
+  const result = await this.updateOne({ user_id }, { $set: updates });
+  return result.modifiedCount > 0;
+};
+
+managerProfileSchema.statics.getJobsPosted = async function(manager_id, page = 1, limit = 20) {
+  const skip = (page - 1) * limit;
+  
+  const Job = mongoose.model('Job');
+  const Proposal = mongoose.model('Proposal');
+  
+  const jobs = await Job.aggregate([
+    { $match: { manager_id: manager_id } },
+    {
+      $lookup: {
+        from: 'proposals',
+        localField: '_id',
+        foreignField: 'job_id',
+        as: 'proposals'
       }
-    });
-    
-    if (fields.length === 0) return false;
-    
-    values.push(user_id);
-    
-    const [result] = await pool.execute(
-      `UPDATE manager_profiles SET ${fields.join(', ')} WHERE user_id = ?`,
-      values
-    );
-    
-    return result.affectedRows > 0;
-  }
+    },
+    {
+      $addFields: {
+        proposal_count: { $size: '$proposals' }
+      }
+    },
+    { $sort: { created_at: -1 } },
+    { $skip: skip },
+    { $limit: limit }
+  ]);
+  
+  const total = await Job.countDocuments({ manager_id });
+  
+  return {
+    jobs: jobs.map(job => ({
+      ...job,
+      id: job._id
+    })),
+    total,
+    page,
+    totalPages: Math.ceil(total / limit)
+  };
+};
 
-  static async getJobsPosted(manager_id, page = 1, limit = 20) {
-    const offset = (page - 1) * limit;
-    
-    const [rows] = await pool.execute(`
-      SELECT j.*, COUNT(p.id) as proposal_count
-      FROM jobs j
-      LEFT JOIN proposals p ON j.id = p.job_id
-      WHERE j.manager_id = ?
-      GROUP BY j.id
-      ORDER BY j.created_at DESC
-      LIMIT ? OFFSET ?
-    `, [manager_id, limit, offset]);
-    
-    // Get total count
-    const [countRows] = await pool.execute(
-      'SELECT COUNT(*) as total FROM jobs WHERE manager_id = ?',
-      [manager_id]
-    );
-    
-    return {
-      jobs: rows,
-      total: countRows[0].total,
-      page,
-      totalPages: Math.ceil(countRows[0].total / limit)
-    };
-  }
+managerProfileSchema.statics.getDashboardStats = async function(manager_id) {
+  const Job = mongoose.model('Job');
+  const Proposal = mongoose.model('Proposal');
+  const Payment = mongoose.model('Payment');
+  
+  // Get job stats
+  const jobStats = await Job.aggregate([
+    { $match: { manager_id: manager_id } },
+    {
+      $group: {
+        _id: null,
+        jobs_posted: { $sum: 1 },
+        open_jobs: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] } },
+        in_progress_jobs: { $sum: { $cond: [{ $eq: ['$status', 'in_progress'] }, 1, 0] } },
+        completed_jobs: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } }
+      }
+    }
+  ]);
+  
+  // Get application stats
+  const applicationStats = await Job.aggregate([
+    { $match: { manager_id: manager_id } },
+    {
+      $lookup: {
+        from: 'proposals',
+        localField: '_id',
+        foreignField: 'job_id',
+        as: 'proposals'
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        applications_received: { $sum: { $size: '$proposals' } },
+        pending_applications: {
+          $sum: {
+            $size: {
+              $filter: {
+                input: '$proposals',
+                cond: { $eq: ['$$this.status', 'pending'] }
+              }
+            }
+          }
+        },
+        hires_made: {
+          $sum: {
+            $size: {
+              $filter: {
+                input: '$proposals',
+                cond: { $eq: ['$$this.status', 'accepted'] }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]);
+  
+  // Get payment stats
+  const manager = await this.findById(manager_id);
+  const paymentStats = await Payment.aggregate([
+    { $match: { user_id: manager.user_id, status: 'completed' } },
+    {
+      $group: {
+        _id: null,
+        total_spent: { $sum: '$amount' }
+      }
+    }
+  ]);
+  
+  // Get recent jobs
+  const recentJobs = await Job.aggregate([
+    { $match: { manager_id: manager_id } },
+    {
+      $lookup: {
+        from: 'proposals',
+        localField: '_id',
+        foreignField: 'job_id',
+        as: 'proposals'
+      }
+    },
+    {
+      $addFields: {
+        applications: { $size: '$proposals' }
+      }
+    },
+    { $sort: { created_at: -1 } },
+    { $limit: 5 }
+  ]);
+  
+  // Get pending applications
+  const pendingApplications = await Job.aggregate([
+    { $match: { manager_id: manager_id } },
+    {
+      $lookup: {
+        from: 'proposals',
+        let: { jobId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$job_id', '$$jobId'] },
+                  { $eq: ['$status', 'pending'] }
+                ]
+              }
+            }
+          },
+          {
+            $lookup: {
+              from: 'talentprofiles',
+              localField: 'talent_id',
+              foreignField: '_id',
+              as: 'talent'
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'talent.user_id',
+              foreignField: '_id',
+              as: 'user'
+            }
+          }
+        ],
+        as: 'pendingProposals'
+      }
+    },
+    { $unwind: '$pendingProposals' },
+    { $sort: { 'pendingProposals.created_at': -1 } },
+    { $limit: 10 }
+  ]);
+  
+  const stats = jobStats[0] || { jobs_posted: 0, open_jobs: 0, in_progress_jobs: 0, completed_jobs: 0 };
+  const appStats = applicationStats[0] || { applications_received: 0, pending_applications: 0, hires_made: 0 };
+  const payStats = paymentStats[0] || { total_spent: 0 };
+  
+  return {
+    stats: {
+      jobs_posted: stats.jobs_posted,
+      applications_received: appStats.applications_received,
+      hires_made: appStats.hires_made,
+      total_spent: payStats.total_spent
+    },
+    recent_jobs: recentJobs.map(job => ({
+      id: job._id.toString(),
+      title: job.title,
+      location: 'Remote',
+      posted_at: job.created_at.toISOString().split('T')[0],
+      status: job.status,
+      applications: job.applications,
+      budget: job.budget_type === 'fixed' 
+        ? `$${job.budget_min}${job.budget_max ? ` - $${job.budget_max}` : ''}` 
+        : `$${job.budget_min}${job.budget_max ? ` - $${job.budget_max}` : ''}/hr`
+    })),
+    pending_applications: pendingApplications.map(item => ({
+      id: item.pendingProposals._id.toString(),
+      job_id: item._id.toString(),
+      applicant_name: item.pendingProposals.user ? `${item.pendingProposals.user[0].first_name} ${item.pendingProposals.user[0].last_name}` : 'Unknown',
+      job_title: item.title,
+      applied_at: item.pendingProposals.created_at.toISOString().split('T')[0],
+      rating: 4.5,
+      experience: '3+ years',
+      location: item.pendingProposals.talent ? item.pendingProposals.talent[0].location || 'Remote' : 'Remote'
+    }))
+  };
+};
 
-  static async getDashboardStats(manager_id) {
-    // Get comprehensive stats
-    const [stats] = await pool.execute(`
-      SELECT 
-        COUNT(*) as jobs_posted,
-        SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open_jobs,
-        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_jobs,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_jobs
-      FROM jobs 
-      WHERE manager_id = ?
-    `, [manager_id]);
-
-    // Get proposal/application stats
-    const [applicationStats] = await pool.execute(`
-      SELECT 
-        COUNT(*) as applications_received,
-        COUNT(CASE WHEN p.status = 'pending' THEN 1 END) as pending_applications,
-        COUNT(CASE WHEN p.status = 'accepted' THEN 1 END) as hires_made
-      FROM proposals p
-      JOIN jobs j ON p.job_id = j.id
-      WHERE j.manager_id = ?
-    `, [manager_id]);
-
-    // Get spending data (mock for now, could connect to payment system later)
-    const [paymentStats] = await pool.execute(`
-      SELECT 
-        COALESCE(SUM(amount), 0) as total_spent
-      FROM payments 
-      WHERE user_id = (SELECT user_id FROM manager_profiles WHERE id = ?)
-        AND status = 'completed'
-    `, [manager_id]);
-
-    // Get recent jobs with application counts
-    const [recentJobs] = await pool.execute(`
-      SELECT 
-        j.id, 
-        j.title, 
-        j.status, 
-        j.budget_min,
-        j.budget_max,
-        j.budget_type,
-        j.currency,
-        j.created_at,
-        COUNT(p.id) as applications
-      FROM jobs j
-      LEFT JOIN proposals p ON j.id = p.job_id
-      WHERE j.manager_id = ?
-      GROUP BY j.id
-      ORDER BY j.created_at DESC
-      LIMIT 5
-    `, [manager_id]);
-
-    // Get pending applications with talent details
-    const [pendingApplications] = await pool.execute(`
-      SELECT 
-        p.id,
-        p.job_id,
-        p.cover_letter,
-        p.bid_amount,
-        p.timeline_days,
-        p.created_at as applied_at,
-        j.title as job_title,
-        tp.title as talent_title,
-        u.first_name,
-        u.last_name,
-        u.email,
-        tp.hourly_rate,
-        tp.location
-      FROM proposals p
-      JOIN jobs j ON p.job_id = j.id
-      JOIN talent_profiles tp ON p.talent_id = tp.id
-      JOIN users u ON tp.user_id = u.id
-      WHERE j.manager_id = ? AND p.status = 'pending'
-      ORDER BY p.created_at DESC
-      LIMIT 10
-    `, [manager_id]);
-
-    const dashboardStats = stats[0];
-    const applicationData = applicationStats[0];
-    const paymentData = paymentStats[0];
-
-    return {
-      stats: {
-        jobs_posted: dashboardStats.jobs_posted || 0,
-        applications_received: applicationData.applications_received || 0,
-        hires_made: applicationData.hires_made || 0,
-        total_spent: paymentData.total_spent || 0
-      },
-      recent_jobs: recentJobs.map(job => ({
-        id: job.id.toString(),
-        title: job.title,
-        location: 'Remote', // Could be from job details in future
-        posted_at: job.created_at.toISOString().split('T')[0],
-        status: job.status,
-        applications: job.applications,
-        budget: job.budget_type === 'fixed' 
-          ? `$${job.budget_min}${job.budget_max ? ` - $${job.budget_max}` : ''}` 
-          : `$${job.budget_min}${job.budget_max ? ` - $${job.budget_max}` : ''}/hr`
-      })),
-      pending_applications: pendingApplications.map(app => ({
-        id: app.id.toString(),
-        job_id: app.job_id.toString(),
-        applicant_name: `${app.first_name} ${app.last_name}`,
-        job_title: app.job_title,
-        applied_at: app.applied_at.toISOString().split('T')[0],
-        rating: 4.5, // Mock rating for now
-        experience: '3+ years', // Mock experience for now
-        location: app.location || 'Remote'
-      }))
-    };
-  }
-}
+const ManagerProfile = mongoose.model('ManagerProfile', managerProfileSchema);
 
 module.exports = ManagerProfile;

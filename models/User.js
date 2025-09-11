@@ -1,396 +1,363 @@
-const { pool } = require('../config/database');
+const { mongoose } = require('../config/mongodb');
 const bcrypt = require('bcryptjs');
 
-class User {
-  static async create({ email, password, role, first_name, last_name }) {
-    const hashedPassword = await bcrypt.hash(password, 12);
-    
-    const [result] = await pool.execute(
-      'INSERT INTO users (email, password, role, first_name, last_name) VALUES (?, ?, ?, ?, ?)',
-      [email, hashedPassword, role, first_name, last_name]
-    );
-    
-    return result.insertId;
+// Import DeletedUser model at the bottom to avoid circular dependency
+let DeletedUser;
+
+// User Schema
+const userSchema = new mongoose.Schema({
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  password: {
+    type: String,
+    required: true,
+    minlength: 6
+  },
+  role: {
+    type: String,
+    enum: ['talent', 'manager', 'admin'],
+    required: true
+  },
+  first_name: {
+    type: String,
+    trim: true
+  },
+  last_name: {
+    type: String,
+    trim: true
+  },
+  profile_image: {
+    type: String
+  },
+  is_active: {
+    type: Boolean,
+    default: true
+  },
+  email_verified: {
+    type: Boolean,
+    default: false
   }
-
-  static async findByEmail(email) {
-    const [rows] = await pool.execute(
-      'SELECT * FROM users WHERE email = ?',
-      [email]
-    );
-    
-    return rows[0];
+}, {
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
   }
+});
 
-  static async findById(id) {
-    const [rows] = await pool.execute(
-      'SELECT id, email, role, first_name, last_name, profile_image, is_active, email_verified, created_at FROM users WHERE id = ?',
-      [id]
-    );
-    
-    return rows[0];
+// Pre-save middleware to hash password
+userSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  
+  try {
+    this.password = await bcrypt.hash(this.password, 12);
+    next();
+  } catch (error) {
+    next(error);
   }
+});
 
-  static async updateProfile(id, updates) {
-    const fields = [];
-    const values = [];
-    
-    Object.keys(updates).forEach(key => {
-      if (updates[key] !== undefined) {
-        fields.push(`${key} = ?`);
-        values.push(updates[key]);
-      }
-    });
-    
-    if (fields.length === 0) return false;
-    
-    values.push(id);
-    
-    const [result] = await pool.execute(
-      `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
-      values
-    );
-    
-    return result.affectedRows > 0;
-  }
+// Instance method to validate password
+userSchema.methods.validatePassword = async function(inputPassword) {
+  return await bcrypt.compare(inputPassword, this.password);
+};
 
-  static async validatePassword(inputPassword, hashedPassword) {
-    return await bcrypt.compare(inputPassword, hashedPassword);
-  }
+// Static methods
+userSchema.statics.create = async function({ email, password, role, first_name, last_name }) {
+  const user = new this({ email, password, role, first_name, last_name });
+  const savedUser = await user.save();
+  return savedUser._id;
+};
 
-  static async getAllUsers(role = null, page = 1, limit = 20) {
-    try {
-      // Ensure parameters are integers and safe
-      const parsedLimit = Math.min(Math.max(parseInt(limit) || 20, 1), 1000);
-      const parsedPage = Math.max(parseInt(page) || 1, 1);
-      const offset = (parsedPage - 1) * parsedLimit;
-      
-      // Use a simple query without parameterized LIMIT/OFFSET
-      let baseQuery = `
-        SELECT id, email, role, first_name, last_name, profile_image,
-               is_active, email_verified as is_verified,
-               created_at, updated_at
-        FROM users
-      `;
-      
-      let params = [];
-      
-      // Add WHERE clause for role filter
-      if (role && role !== 'all' && role !== null && role !== '') {
-        baseQuery += ' WHERE role = ?';
-        params.push(role);
-      }
-      
-      // Complete the query with LIMIT and OFFSET as literals
-      const query = baseQuery + ` ORDER BY created_at DESC LIMIT ${parsedLimit} OFFSET ${offset}`;
+userSchema.statics.findByEmail = async function(email) {
+  return await this.findOne({ email: email.toLowerCase() });
+};
 
-      console.log('Executing getAllUsers query:', query);
-      console.log('With params:', params);
+userSchema.statics.findById = async function(id) {
+  return await this.findOne({ _id: id }).select('email role first_name last_name profile_image is_active email_verified created_at');
+};
 
-      const [rows] = await pool.execute(query, params);
-      console.log(`Found ${rows.length} users`);
-      
-      // Get total count for pagination  
-      let countQuery = 'SELECT COUNT(*) as total FROM users';
-      let countParams = [];
-      
-      if (role && role !== 'all' && role !== null && role !== '') {
-        countQuery += ' WHERE role = ?';
-        countParams.push(role);
-      }
-      
-      const [countRows] = await pool.execute(countQuery, countParams);
-      const total = countRows[0].total;
-      
-      return {
-        users: rows,
-        total: total,
-        page: parsedPage,
-        totalPages: Math.ceil(total / parsedLimit)
-      };
-    } catch (error) {
-      console.error('getAllUsers error:', error);
-      throw error;
+userSchema.statics.updateProfile = async function(id, updates) {
+  const result = await this.updateOne({ _id: id }, { $set: updates });
+  return result.modifiedCount > 0;
+};
+
+userSchema.statics.validatePassword = async function(inputPassword, hashedPassword) {
+  return await bcrypt.compare(inputPassword, hashedPassword);
+};
+
+userSchema.statics.getAllUsers = async function(role = null, page = 1, limit = 20) {
+  try {
+    const parsedLimit = Math.min(Math.max(parseInt(limit) || 20, 1), 1000);
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+    const skip = (parsedPage - 1) * parsedLimit;
+    
+    let query = {};
+    
+    if (role && role !== 'all' && role !== null && role !== '') {
+      query.role = role;
     }
-  }
-
-  static async deactivateUser(id) {
-    const [result] = await pool.execute(
-      'UPDATE users SET is_active = false WHERE id = ?',
-      [id]
-    );
     
-    return result.affectedRows > 0;
-  }
-
-  static async softDeleteUser(id, deletedBy, reason = null) {
-    const connection = await pool.getConnection();
+    console.log('Executing getAllUsers query with filter:', query);
     
-    try {
-      await connection.beginTransaction();
-
-      // Get user data before deletion
-      const [userRows] = await connection.execute(
-        'SELECT * FROM users WHERE id = ?',
-        [id]
-      );
-      
-      if (userRows.length === 0) {
-        await connection.rollback();
-        connection.release();
-        return { success: false, error: 'User not found' };
-      }
-
-      const user = userRows[0];
-
-      // Get profile data based on user role
-      let profileData = null;
-      if (user.role === 'talent') {
-        const [profileRows] = await connection.execute(
-          'SELECT * FROM talent_profiles WHERE user_id = ?',
-          [id]
-        );
-        profileData = profileRows[0] || null;
-      } else if (user.role === 'manager') {
-        const [profileRows] = await connection.execute(
-          'SELECT * FROM manager_profiles WHERE user_id = ?',
-          [id]
-        );
-        profileData = profileRows[0] || null;
-      }
-
-      // Insert into deleted_users table
-      await connection.execute(`
-        INSERT INTO deleted_users (
-          original_user_id, email, first_name, last_name, role, 
-          profile_image, user_data, profile_data, deletion_reason, 
-          deleted_by, original_created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        user.id,
-        user.email,
-        user.first_name,
-        user.last_name,
-        user.role,
-        user.profile_image,
-        JSON.stringify(user),
-        JSON.stringify(profileData),
-        reason,
-        deletedBy,
-        user.created_at
-      ]);
-
-      // Delete the user (CASCADE will handle related records)
-      const [deleteResult] = await connection.execute(
-        'DELETE FROM users WHERE id = ?',
-        [id]
-      );
-
-      await connection.commit();
-      connection.release();
-      
-      return { 
-        success: true, 
-        affectedRows: deleteResult.affectedRows,
-        deletedUser: {
-          id: user.id,
-          email: user.email,
-          name: `${user.first_name} ${user.last_name}`
-        }
-      };
-    } catch (error) {
-      await connection.rollback();
-      connection.release();
-      console.error('Soft delete user error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  static async hardDeleteUser(id) {
-    try {
-      // Get user info for return data
-      const [userRows] = await pool.execute(
-        'SELECT id, email, first_name, last_name FROM users WHERE id = ?',
-        [id]
-      );
-      
-      if (userRows.length === 0) {
-        return { success: false, error: 'User not found' };
-      }
-
-      const user = userRows[0];
-
-      // Hard delete (CASCADE will handle all related records)
-      const [result] = await pool.execute(
-        'DELETE FROM users WHERE id = ?',
-        [id]
-      );
-      
-      return { 
-        success: true, 
-        affectedRows: result.affectedRows,
-        deletedUser: {
-          id: user.id,
-          email: user.email,
-          name: `${user.first_name} ${user.last_name}`
-        }
-      };
-    } catch (error) {
-      console.error('Hard delete user error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  static async getDeletedUsers(page = 1, limit = 20) {
-    try {
-      const parsedLimit = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
-      const parsedPage = Math.max(parseInt(page) || 1, 1);
-      const offset = (parsedPage - 1) * parsedLimit;
-      
-      const query = `
-        SELECT du.*, u.first_name as deleted_by_name, u.last_name as deleted_by_last_name
-        FROM deleted_users du
-        LEFT JOIN users u ON du.deleted_by = u.id
-        ORDER BY du.deleted_at DESC 
-        LIMIT ${parsedLimit} OFFSET ${offset}
-      `;
-
-      const [rows] = await pool.execute(query);
-      
-      // Get total count
-      const [countRows] = await pool.execute('SELECT COUNT(*) as total FROM deleted_users');
-      const total = countRows[0].total;
-      
-      return {
-        deletedUsers: rows,
-        total: total,
-        page: parsedPage,
-        totalPages: Math.ceil(total / parsedLimit)
-      };
-    } catch (error) {
-      console.error('Get deleted users error:', error);
-      throw error;
-    }
-  }
-
-  static async restoreUser(deletedUserId, restoredBy) {
-    const connection = await pool.getConnection();
+    const users = await this.find(query)
+      .select('email role first_name last_name profile_image is_active email_verified created_at updated_at')
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(parsedLimit);
     
-    try {
-      await connection.beginTransaction();
-
-      // Get deleted user data
-      const [deletedRows] = await connection.execute(
-        'SELECT * FROM deleted_users WHERE id = ?',
-        [deletedUserId]
-      );
-      
-      if (deletedRows.length === 0) {
-        await connection.rollback();
-        connection.release();
-        return { success: false, error: 'Deleted user not found' };
-      }
-
-      const deletedUser = deletedRows[0];
-      const userData = JSON.parse(deletedUser.user_data);
-      const profileData = deletedUser.profile_data ? JSON.parse(deletedUser.profile_data) : null;
-
-      // Check if email already exists
-      const [existingUser] = await connection.execute(
-        'SELECT id FROM users WHERE email = ?',
-        [deletedUser.email]
-      );
-      
-      if (existingUser.length > 0) {
-        await connection.rollback();
-        connection.release();
-        return { success: false, error: 'Email already exists in active users' };
-      }
-
-      // Restore user to users table
-      await connection.execute(`
-        INSERT INTO users (
-          email, password, role, first_name, last_name, 
-          profile_image, is_active, email_verified, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        userData.email,
-        userData.password,
-        userData.role,
-        userData.first_name,
-        userData.last_name,
-        userData.profile_image,
-        userData.is_active,
-        userData.email_verified,
-        userData.created_at
-      ]);
-
-      const [result] = await connection.execute('SELECT LAST_INSERT_ID() as id');
-      const newUserId = result[0].id;
-
-      // Restore profile data if exists
-      if (profileData) {
-        if (userData.role === 'talent') {
-          await connection.execute(`
-            INSERT INTO talent_profiles (
-              user_id, title, bio, hourly_rate, availability, 
-              location, portfolio_description, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [
-            newUserId,
-            profileData.title || '',
-            profileData.bio || '',
-            profileData.hourly_rate,
-            profileData.availability || 'contract',
-            profileData.location || '',
-            profileData.portfolio_description || '',
-            profileData.created_at,
-            profileData.updated_at
-          ]);
-        } else if (userData.role === 'manager') {
-          await connection.execute(`
-            INSERT INTO manager_profiles (
-              user_id, company_name, company_description, company_size, 
-              industry, location, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `, [
-            newUserId,
-            profileData.company_name || '',
-            profileData.company_description || '',
-            profileData.company_size,
-            profileData.industry || '',
-            profileData.location || '',
-            profileData.created_at,
-            profileData.updated_at
-          ]);
-        }
-      }
-
-      // Remove from deleted_users table
-      await connection.execute(
-        'DELETE FROM deleted_users WHERE id = ?',
-        [deletedUserId]
-      );
-
-      await connection.commit();
-      connection.release();
-      
-      return { 
-        success: true, 
-        restoredUser: {
-          id: newUserId,
-          email: userData.email,
-          name: `${userData.first_name} ${userData.last_name}`,
-          role: userData.role
-        }
-      };
-    } catch (error) {
-      await connection.rollback();
-      connection.release();
-      console.error('Restore user error:', error);
-      return { success: false, error: error.message };
-    }
+    console.log(`Found ${users.length} users`);
+    
+    const total = await this.countDocuments(query);
+    
+    return {
+      users: users.map(user => ({
+        ...user.toObject(),
+        id: user._id,
+        is_verified: user.email_verified
+      })),
+      total: total,
+      page: parsedPage,
+      totalPages: Math.ceil(total / parsedLimit)
+    };
+  } catch (error) {
+    console.error('getAllUsers error:', error);
+    throw error;
   }
-}
+};
+
+userSchema.statics.deactivateUser = async function(id) {
+  const result = await this.updateOne({ _id: id }, { $set: { is_active: false } });
+  return result.modifiedCount > 0;
+};
+
+userSchema.statics.softDeleteUser = async function(id, deletedBy, reason = null) {
+  const session = await mongoose.startSession();
+  let transactionCommitted = false;
+  
+  try {
+    await session.startTransaction();
+
+    // Get user data before deletion
+    const user = await this.findById(id, null, { session });
+    
+    if (!user) {
+      await session.abortTransaction();
+      transactionCommitted = true; // Mark as handled
+      return { success: false, error: 'User not found' };
+    }
+
+    // Get profile data based on user role
+    let profileData = null;
+    if (user.role === 'talent') {
+      const TalentProfile = mongoose.model('TalentProfile');
+      profileData = await TalentProfile.findOne({ user_id: id }, null, { session });
+    } else if (user.role === 'manager') {
+      const ManagerProfile = mongoose.model('ManagerProfile');
+      profileData = await ManagerProfile.findOne({ user_id: id }, null, { session });
+    }
+
+    // Insert into deleted_users collection
+    if (!DeletedUser) {
+      DeletedUser = require('./DeletedUser');
+    }
+    await DeletedUser.create([{
+      original_user_id: user._id,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      role: user.role,
+      profile_image: user.profile_image,
+      user_data: user.toObject(),
+      profile_data: profileData ? profileData.toObject() : null,
+      deletion_reason: reason,
+      deleted_by: deletedBy,
+      original_created_at: user.created_at
+    }], { session });
+
+    // Delete the user
+    const deleteResult = await this.deleteOne({ _id: id }, { session });
+
+    await session.commitTransaction();
+    transactionCommitted = true;
+    
+    return { 
+      success: true, 
+      affectedRows: deleteResult.deletedCount,
+      deletedUser: {
+        id: user._id,
+        email: user.email,
+        name: `${user.first_name} ${user.last_name}`
+      }
+    };
+  } catch (error) {
+    if (!transactionCommitted) {
+      await session.abortTransaction();
+    }
+    console.error('Soft delete user error:', error);
+    return { success: false, error: error.message };
+  } finally {
+    await session.endSession();
+  }
+};
+
+userSchema.statics.hardDeleteUser = async function(id) {
+  try {
+    // Get user info for return data
+    const user = await this.findById(id).select('_id email first_name last_name');
+    
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+
+    // Hard delete
+    const result = await this.deleteOne({ _id: id });
+    
+    return { 
+      success: true, 
+      affectedRows: result.deletedCount,
+      deletedUser: {
+        id: user._id,
+        email: user.email,
+        name: `${user.first_name} ${user.last_name}`
+      }
+    };
+  } catch (error) {
+    console.error('Hard delete user error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+userSchema.statics.getDeletedUsers = async function(page = 1, limit = 20) {
+  try {
+    const parsedLimit = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+    const skip = (parsedPage - 1) * parsedLimit;
+    
+    const DeletedUser = mongoose.model('DeletedUser');
+    const deletedUsers = await DeletedUser.find()
+      .populate('deleted_by', 'first_name last_name')
+      .sort({ deleted_at: -1 })
+      .skip(skip)
+      .limit(parsedLimit);
+    
+    const total = await DeletedUser.countDocuments();
+    
+    return {
+      deletedUsers: deletedUsers.map(user => ({
+        ...user.toObject(),
+        deleted_by_name: user.deleted_by?.first_name,
+        deleted_by_last_name: user.deleted_by?.last_name
+      })),
+      total: total,
+      page: parsedPage,
+      totalPages: Math.ceil(total / parsedLimit)
+    };
+  } catch (error) {
+    console.error('Get deleted users error:', error);
+    throw error;
+  }
+};
+
+userSchema.statics.restoreUser = async function(deletedUserId, restoredBy) {
+  const session = await mongoose.startSession();
+  
+  try {
+    await session.startTransaction();
+
+    // Get deleted user data
+    const DeletedUser = mongoose.model('DeletedUser');
+    const deletedUser = await DeletedUser.findById(deletedUserId).session(session);
+    
+    if (!deletedUser) {
+      await session.abortTransaction();
+      return { success: false, error: 'Deleted user not found' };
+    }
+
+    const userData = deletedUser.user_data;
+    const profileData = deletedUser.profile_data;
+
+    // Check if email already exists
+    const existingUser = await this.findOne({ email: deletedUser.email }).session(session);
+    
+    if (existingUser) {
+      await session.abortTransaction();
+      return { success: false, error: 'Email already exists in active users' };
+    }
+
+    // Restore user
+    const restoredUser = await this.create([{
+      email: userData.email,
+      password: userData.password,
+      role: userData.role,
+      first_name: userData.first_name,
+      last_name: userData.last_name,
+      profile_image: userData.profile_image,
+      is_active: userData.is_active,
+      email_verified: userData.email_verified,
+      created_at: userData.created_at
+    }], { session });
+
+    const newUserId = restoredUser[0]._id;
+
+    // Restore profile data if exists
+    if (profileData) {
+      if (userData.role === 'talent') {
+        const TalentProfile = mongoose.model('TalentProfile');
+        await TalentProfile.create([{
+          user_id: newUserId,
+          title: profileData.title || '',
+          bio: profileData.bio || '',
+          hourly_rate: profileData.hourly_rate,
+          availability: profileData.availability || 'contract',
+          location: profileData.location || '',
+          portfolio_description: profileData.portfolio_description || '',
+          created_at: profileData.created_at,
+          updated_at: profileData.updated_at
+        }], { session });
+      } else if (userData.role === 'manager') {
+        const ManagerProfile = mongoose.model('ManagerProfile');
+        await ManagerProfile.create([{
+          user_id: newUserId,
+          company_name: profileData.company_name || '',
+          company_description: profileData.company_description || '',
+          company_size: profileData.company_size,
+          industry: profileData.industry || '',
+          location: profileData.location || '',
+          created_at: profileData.created_at,
+          updated_at: profileData.updated_at
+        }], { session });
+      }
+    }
+
+    // Remove from deleted_users collection
+    await DeletedUser.deleteOne({ _id: deletedUserId }).session(session);
+
+    await session.commitTransaction();
+    
+    return { 
+      success: true, 
+      restoredUser: {
+        id: newUserId,
+        email: userData.email,
+        name: `${userData.first_name} ${userData.last_name}`,
+        role: userData.role
+      }
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Restore user error:', error);
+    return { success: false, error: error.message };
+  } finally {
+    await session.endSession();
+  }
+};
+
+// Create the User model
+const User = mongoose.model('User', userSchema);
 
 module.exports = User;

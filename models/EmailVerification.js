@@ -1,72 +1,60 @@
-const { pool } = require('../config/database');
+const { mongoose } = require('../config/mongodb');
 
-class EmailVerification {
-  static async create({ userId, email, verificationCode, expiresAt }) {
-    const [result] = await pool.execute(
-      'INSERT INTO email_verification_codes (user_id, email, verification_code, expires_at) VALUES (?, ?, ?, ?)',
-      [userId, email, verificationCode, expiresAt]
-    );
-    
-    return result.insertId;
-  }
+const emailVerificationSchema = new mongoose.Schema({
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  email: {
+    type: String,
+    required: true
+  },
+  verification_code: {
+    type: String,
+    required: true
+  },
+  expires_at: {
+    type: Date,
+    required: true,
+    index: { expireAfterSeconds: 0 } // TTL index
+  },
+  used_at: Date
+}, {
+  timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
+});
 
-  static async findByUserAndCode(userId, code) {
-    const [rows] = await pool.execute(
-      `SELECT * FROM email_verification_codes 
-       WHERE user_id = ? AND verification_code = ? AND used_at IS NULL AND expires_at > NOW()
-       ORDER BY created_at DESC LIMIT 1`,
-      [userId, code]
-    );
-    
-    return rows[0];
-  }
+emailVerificationSchema.index({ user_id: 1, verification_code: 1 });
 
-  static async findLatestByUser(userId) {
-    const [rows] = await pool.execute(
-      `SELECT * FROM email_verification_codes 
-       WHERE user_id = ? AND used_at IS NULL
-       ORDER BY created_at DESC LIMIT 1`,
-      [userId]
-    );
-    
-    return rows[0];
-  }
+// Static methods
+emailVerificationSchema.statics.generateCode = function() {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+};
 
-  static async markAsUsed(id) {
-    const [result] = await pool.execute(
-      'UPDATE email_verification_codes SET used_at = NOW() WHERE id = ?',
-      [id]
-    );
-    
-    return result.affectedRows > 0;
-  }
+emailVerificationSchema.statics.getExpiryTime = function(minutes = 15) {
+  return new Date(Date.now() + minutes * 60 * 1000);
+};
 
-  static async deleteExpired() {
-    const [result] = await pool.execute(
-      'DELETE FROM email_verification_codes WHERE expires_at < NOW()'
-    );
-    
-    return result.affectedRows;
-  }
+emailVerificationSchema.statics.findLatestByUser = function(userId) {
+  return this.findOne({ user_id: userId })
+    .sort({ created_at: -1 })
+    .limit(1);
+};
 
-  static async deleteUserCodes(userId) {
-    const [result] = await pool.execute(
-      'DELETE FROM email_verification_codes WHERE user_id = ?',
-      [userId]
-    );
-    
-    return result.affectedRows;
-  }
+emailVerificationSchema.statics.findByUserAndCode = function(userId, verificationCode) {
+  return this.findOne({
+    user_id: userId,
+    verification_code: verificationCode,
+    expires_at: { $gt: new Date() }, // Code must not be expired
+    used_at: { $exists: false } // Code must not be used
+  });
+};
 
-  static generateCode() {
-    return Math.floor(1000 + Math.random() * 9000).toString();
-  }
+emailVerificationSchema.statics.markAsUsed = function(verificationId) {
+  return this.findByIdAndUpdate(verificationId, {
+    used_at: new Date()
+  });
+};
 
-  static getExpiryTime(minutes = 15) {
-    const expiry = new Date();
-    expiry.setMinutes(expiry.getMinutes() + minutes);
-    return expiry;
-  }
-}
-
+const EmailVerification = mongoose.model('EmailVerification', emailVerificationSchema);
 module.exports = EmailVerification;

@@ -4,136 +4,185 @@ const Job = require('../models/Job');
 const Proposal = require('../models/Proposal');
 const Message = require('../models/Message');
 const Skill = require('../models/Skill');
-const { pool } = require('../config/database');
+// MongoDB connection handled through models
 
 class AdminController {
   // Dashboard and Stats
   static async getAdminStats(req, res) {
     try {
-      // Get comprehensive platform statistics
-      const [userStats] = await pool.execute(`
-        SELECT 
-          COUNT(*) as total_users,
-          COUNT(CASE WHEN role = 'talent' THEN 1 END) as total_talents,
-          COUNT(CASE WHEN role = 'manager' THEN 1 END) as total_managers,
-          COUNT(CASE WHEN is_active = 1 THEN 1 END) as active_users,
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_users_30d,
-          COUNT(CASE WHEN email_verified = 1 THEN 1 END) as verified_users,
-          COUNT(CASE WHEN email_verified = 0 THEN 1 END) as unverified_users,
-          COUNT(CASE WHEN last_login_at >= DATE_SUB(NOW(), INTERVAL 1 DAY) THEN 1 END) as active_today,
-          COUNT(CASE WHEN last_login_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as active_week,
-          COUNT(CASE WHEN last_login_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as active_month
-        FROM users
-        WHERE role != 'admin'
-      `);
+      // Get comprehensive platform statistics using MongoDB aggregation
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+      const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+      const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
 
-      const [jobStats] = await pool.execute(`
-        SELECT 
-          COUNT(*) as total_jobs,
-          COUNT(CASE WHEN status = 'open' THEN 1 END) as open_jobs,
-          COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_jobs,
-          COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_jobs,
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_jobs_30d,
-          AVG(budget_max) as avg_budget,
-          SUM(CASE WHEN status = 'completed' THEN budget_max ELSE 0 END) as completed_value
-        FROM jobs
-      `);
+      // User statistics
+      const userStatsAgg = await User.aggregate([
+        { $match: { role: { $ne: 'admin' } } },
+        {
+          $group: {
+            _id: null,
+            total_users: { $sum: 1 },
+            total_talents: { $sum: { $cond: [{ $eq: ['$role', 'talent'] }, 1, 0] } },
+            total_managers: { $sum: { $cond: [{ $eq: ['$role', 'manager'] }, 1, 0] } },
+            active_users: { $sum: { $cond: [{ $eq: ['$is_active', true] }, 1, 0] } },
+            new_users_30d: { $sum: { $cond: [{ $gte: ['$created_at', thirtyDaysAgo] }, 1, 0] } },
+            verified_users: { $sum: { $cond: [{ $eq: ['$email_verified', true] }, 1, 0] } },
+            unverified_users: { $sum: { $cond: [{ $eq: ['$email_verified', false] }, 1, 0] } },
+            active_today: { $sum: { $cond: [{ $gte: ['$last_login_at', oneDayAgo] }, 1, 0] } },
+            active_week: { $sum: { $cond: [{ $gte: ['$last_login_at', sevenDaysAgo] }, 1, 0] } },
+            active_month: { $sum: { $cond: [{ $gte: ['$last_login_at', thirtyDaysAgo] }, 1, 0] } }
+          }
+        }
+      ]);
 
-      const [proposalStats] = await pool.execute(`
-        SELECT 
-          COUNT(*) as total_proposals,
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_proposals,
-          COUNT(CASE WHEN status = 'accepted' THEN 1 END) as accepted_proposals,
-          COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_proposals,
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_proposals_30d,
-          AVG(bid_amount) as avg_bid_amount
-        FROM proposals
-      `);
+      const userStats = userStatsAgg[0] || {
+        total_users: 0,
+        total_talents: 0,
+        total_managers: 0,
+        active_users: 0,
+        new_users_30d: 0,
+        verified_users: 0,
+        unverified_users: 0,
+        active_today: 0,
+        active_week: 0,
+        active_month: 0
+      };
 
-      const [messageStats] = await pool.execute(`
-        SELECT 
-          COUNT(*) as total_messages,
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_messages_30d,
-          COUNT(CASE WHEN is_read = 0 THEN 1 END) as unread_messages,
-          COUNT(DISTINCT job_id) as active_conversations
-        FROM messages
-      `);
+      // Job statistics
+      const jobStatsAgg = await Job.aggregate([
+        {
+          $group: {
+            _id: null,
+            total_jobs: { $sum: 1 },
+            open_jobs: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] } },
+            in_progress_jobs: { $sum: { $cond: [{ $eq: ['$status', 'in_progress'] }, 1, 0] } },
+            completed_jobs: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+            new_jobs_30d: { $sum: { $cond: [{ $gte: ['$created_at', thirtyDaysAgo] }, 1, 0] } },
+            avg_budget: { $avg: '$budget_max' },
+            completed_value: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, '$budget_max', 0] } }
+          }
+        }
+      ]);
 
-      // Get revenue statistics from invoices
-      const [revenueStats] = await pool.execute(`
-        SELECT 
-          COALESCE(SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END), 0) as total_revenue,
-          COALESCE(SUM(CASE WHEN status IN ('sent', 'draft') THEN total_amount ELSE 0 END), 0) as pending_revenue,
-          COALESCE(SUM(CASE WHEN status = 'overdue' THEN total_amount ELSE 0 END), 0) as overdue_revenue,
-          COALESCE(SUM(CASE WHEN status = 'cancelled' THEN total_amount ELSE 0 END), 0) as refunded_revenue,
-          COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_invoices,
-          COUNT(*) as total_invoices
-        FROM invoices
-      `);
+      const jobStats = jobStatsAgg[0] || {
+        total_jobs: 0,
+        open_jobs: 0,
+        in_progress_jobs: 0,
+        completed_jobs: 0,
+        new_jobs_30d: 0,
+        avg_budget: 0,
+        completed_value: 0
+      };
 
-      // Get geographical data for users
-      const [geoStats] = await pool.execute(`
-        SELECT 
-          country,
-          COUNT(*) as user_count,
-          COUNT(CASE WHEN last_login_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as active_users
-        FROM user_sessions us
-        JOIN users u ON us.user_id = u.id
-        WHERE u.role != 'admin' AND us.country IS NOT NULL
-        GROUP BY country
-        ORDER BY user_count DESC
-        LIMIT 10
-      `);
+      // Proposal statistics
+      const proposalStatsAgg = await Proposal.aggregate([
+        {
+          $group: {
+            _id: null,
+            total_proposals: { $sum: 1 },
+            pending_proposals: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+            accepted_proposals: { $sum: { $cond: [{ $eq: ['$status', 'accepted'] }, 1, 0] } },
+            rejected_proposals: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } },
+            new_proposals_30d: { $sum: { $cond: [{ $gte: ['$created_at', thirtyDaysAgo] }, 1, 0] } },
+            avg_bid_amount: { $avg: '$bid_amount' }
+          }
+        }
+      ]);
 
-      // Get system health metrics
-      const [systemHealth] = await pool.execute(`
-        SELECT 
-          table_name,
-          table_rows,
-          ROUND(data_length / 1024 / 1024, 2) as size_mb,
-          ROUND(index_length / 1024 / 1024, 2) as index_size_mb
-        FROM information_schema.tables 
-        WHERE table_schema = DATABASE()
-        ORDER BY data_length DESC
-        LIMIT 10
-      `);
+      const proposalStats = proposalStatsAgg[0] || {
+        total_proposals: 0,
+        pending_proposals: 0,
+        accepted_proposals: 0,
+        rejected_proposals: 0,
+        new_proposals_30d: 0,
+        avg_bid_amount: 0
+      };
+
+      // Message statistics
+      const messageStatsAgg = await Message.aggregate([
+        {
+          $group: {
+            _id: null,
+            total_messages: { $sum: 1 },
+            new_messages_30d: { $sum: { $cond: [{ $gte: ['$created_at', thirtyDaysAgo] }, 1, 0] } },
+            unread_messages: { $sum: { $cond: [{ $eq: ['$is_read', false] }, 1, 0] } }
+          }
+        }
+      ]);
+
+      const activeConversationsAgg = await Message.aggregate([
+        { $group: { _id: '$job_id' } },
+        { $count: 'active_conversations' }
+      ]);
+
+      const messageStats = {
+        ...messageStatsAgg[0] || {
+          total_messages: 0,
+          new_messages_30d: 0,
+          unread_messages: 0
+        },
+        active_conversations: activeConversationsAgg[0]?.active_conversations || 0
+      };
+
+      // Revenue statistics (placeholder - would need Invoice model)
+      const revenueStats = {
+        total_revenue: 0,
+        pending_revenue: 0,
+        overdue_revenue: 0,
+        refunded_revenue: 0,
+        paid_invoices: 0,
+        total_invoices: 0
+      };
+
+      // Geographical data (placeholder - would need user_sessions collection)
+      const geoStats = [];
+
+      // System health metrics (simplified for MongoDB)
+      const systemHealth = [
+        { collection_name: 'users', estimated_count: await User.estimatedDocumentCount() },
+        { collection_name: 'jobs', estimated_count: await Job.estimatedDocumentCount() },
+        { collection_name: 'proposals', estimated_count: await Proposal.estimatedDocumentCount() },
+        { collection_name: 'messages', estimated_count: await Message.estimatedDocumentCount() }
+      ];
 
       // Calculate growth rate from previous month
-      const [growthStats] = await pool.execute(`
-        SELECT 
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as current_month,
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) AND created_at < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as previous_month
-        FROM users
-        WHERE role != 'admin'
-      `);
+      const sixtyDaysAgo = new Date(now.getTime() - (60 * 24 * 60 * 60 * 1000));
+      const growthStatsAgg = await User.aggregate([
+        { $match: { role: { $ne: 'admin' } } },
+        {
+          $group: {
+            _id: null,
+            current_month: { $sum: { $cond: [{ $gte: ['$created_at', thirtyDaysAgo] }, 1, 0] } },
+            previous_month: { $sum: { $cond: [{ $and: [{ $gte: ['$created_at', sixtyDaysAgo] }, { $lt: ['$created_at', thirtyDaysAgo] }] }, 1, 0] } }
+          }
+        }
+      ]);
 
-      const growthRate = growthStats[0].previous_month > 0 
-        ? ((growthStats[0].current_month - growthStats[0].previous_month) / growthStats[0].previous_month) * 100 
+      const growthData = growthStatsAgg[0] || { current_month: 0, previous_month: 0 };
+      const growthRate = growthData.previous_month > 0 
+        ? ((growthData.current_month - growthData.previous_month) / growthData.previous_month) * 100 
         : 0;
 
-      // Get currently active sessions (users online in last 15 minutes)
-      const [activeSessions] = await pool.execute(`
-        SELECT COUNT(DISTINCT user_id) as live_users
-        FROM user_sessions
-        WHERE last_activity >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
-      `);
+      // Active sessions (placeholder - would need user_sessions collection)
+      const activeSessions = { live_users: 0 };
 
       res.json({
         users: {
-          ...userStats[0],
+          ...userStats,
           growth_rate: growthRate
         },
-        jobs: jobStats[0],
-        proposals: proposalStats[0],
-        messages: messageStats[0],
+        jobs: jobStats,
+        proposals: proposalStats,
+        messages: messageStats,
         revenue: {
-          ...revenueStats[0],
-          growth_rate: 12.5 // TODO: Calculate actual revenue growth rate
+          ...revenueStats,
+          growth_rate: 0 // TODO: Calculate actual revenue growth rate
         },
         geography: geoStats,
         system: {
           database_health: systemHealth,
-          live_users: activeSessions[0].live_users,
+          live_users: activeSessions.live_users,
           uptime: 99.9, // TODO: Calculate actual uptime
           response_time: 145, // TODO: Calculate actual response time
           error_rate: 0.2 // TODO: Calculate actual error rate
@@ -148,69 +197,91 @@ class AdminController {
 
   static async getDashboard(req, res) {
     try {
-      // Get platform statistics
-      const [userStats] = await pool.execute(`
-        SELECT 
-          COUNT(*) as total_users,
-          COUNT(CASE WHEN role = 'talent' THEN 1 END) as total_talents,
-          COUNT(CASE WHEN role = 'manager' THEN 1 END) as total_managers,
-          COUNT(CASE WHEN is_active = 1 THEN 1 END) as active_users,
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_users_30d
-        FROM users
-        WHERE role != 'admin'
-      `);
+      // Get platform statistics using MongoDB
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
 
-      const [jobStats] = await pool.execute(`
-        SELECT 
-          COUNT(*) as total_jobs,
-          COUNT(CASE WHEN status = 'open' THEN 1 END) as open_jobs,
-          COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_jobs,
-          COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_jobs,
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_jobs_30d
-        FROM jobs
-      `);
+      // User statistics
+      const userStatsAgg = await User.aggregate([
+        { $match: { role: { $ne: 'admin' } } },
+        {
+          $group: {
+            _id: null,
+            total_users: { $sum: 1 },
+            total_talents: { $sum: { $cond: [{ $eq: ['$role', 'talent'] }, 1, 0] } },
+            total_managers: { $sum: { $cond: [{ $eq: ['$role', 'manager'] }, 1, 0] } },
+            active_users: { $sum: { $cond: [{ $eq: ['$is_active', true] }, 1, 0] } },
+            new_users_30d: { $sum: { $cond: [{ $gte: ['$created_at', thirtyDaysAgo] }, 1, 0] } }
+          }
+        }
+      ]);
+      const userStats = userStatsAgg[0] || { total_users: 0, total_talents: 0, total_managers: 0, active_users: 0, new_users_30d: 0 };
 
-      const [proposalStats] = await pool.execute(`
-        SELECT 
-          COUNT(*) as total_proposals,
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_proposals,
-          COUNT(CASE WHEN status = 'accepted' THEN 1 END) as accepted_proposals,
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_proposals_30d
-        FROM proposals
-      `);
+      // Job statistics
+      const jobStatsAgg = await Job.aggregate([
+        {
+          $group: {
+            _id: null,
+            total_jobs: { $sum: 1 },
+            open_jobs: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] } },
+            in_progress_jobs: { $sum: { $cond: [{ $eq: ['$status', 'in_progress'] }, 1, 0] } },
+            completed_jobs: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+            new_jobs_30d: { $sum: { $cond: [{ $gte: ['$created_at', thirtyDaysAgo] }, 1, 0] } }
+          }
+        }
+      ]);
+      const jobStats = jobStatsAgg[0] || { total_jobs: 0, open_jobs: 0, in_progress_jobs: 0, completed_jobs: 0, new_jobs_30d: 0 };
 
-      const [messageStats] = await pool.execute(`
-        SELECT 
-          COUNT(*) as total_messages,
-          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_messages_30d
-        FROM messages
-      `);
+      // Proposal statistics
+      const proposalStatsAgg = await Proposal.aggregate([
+        {
+          $group: {
+            _id: null,
+            total_proposals: { $sum: 1 },
+            pending_proposals: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+            accepted_proposals: { $sum: { $cond: [{ $eq: ['$status', 'accepted'] }, 1, 0] } },
+            new_proposals_30d: { $sum: { $cond: [{ $gte: ['$created_at', thirtyDaysAgo] }, 1, 0] } }
+          }
+        }
+      ]);
+      const proposalStats = proposalStatsAgg[0] || { total_proposals: 0, pending_proposals: 0, accepted_proposals: 0, new_proposals_30d: 0 };
+
+      // Message statistics  
+      const messageStatsAgg = await Message.aggregate([
+        {
+          $group: {
+            _id: null,
+            total_messages: { $sum: 1 },
+            new_messages_30d: { $sum: { $cond: [{ $gte: ['$created_at', thirtyDaysAgo] }, 1, 0] } }
+          }
+        }
+      ]);
+      const messageStats = messageStatsAgg[0] || { total_messages: 0, new_messages_30d: 0 };
 
       // Get recent activity
-      const [recentUsers] = await pool.execute(`
-        SELECT id, email, role, first_name, last_name, created_at
-        FROM users 
-        WHERE role != 'admin'
-        ORDER BY created_at DESC 
-        LIMIT 10
-      `);
+      const recentUsers = await User.find({ role: { $ne: 'admin' } })
+        .select('id email role first_name last_name created_at')
+        .sort({ created_at: -1 })
+        .limit(10)
+        .lean();
 
-      const [recentJobs] = await pool.execute(`
-        SELECT j.id, j.title, j.status, j.created_at, mp.company_name,
-               u.first_name, u.last_name
-        FROM jobs j
-        JOIN manager_profiles mp ON j.manager_id = mp.id
-        JOIN users u ON mp.user_id = u.id
-        ORDER BY j.created_at DESC 
-        LIMIT 10
-      `);
+      const recentJobs = await Job.find()
+        .populate('manager_id', 'company_name user_id')
+        .populate({
+          path: 'manager_id',
+          populate: { path: 'user_id', select: 'first_name last_name' }
+        })
+        .select('id title status created_at')
+        .sort({ created_at: -1 })
+        .limit(10)
+        .lean();
 
       res.json({
         stats: {
-          users: userStats[0],
-          jobs: jobStats[0],
-          proposals: proposalStats[0],
-          messages: messageStats[0]
+          users: userStats,
+          jobs: jobStats,
+          proposals: proposalStats,
+          messages: messageStats
         },
         recentActivity: {
           users: recentUsers,
@@ -1137,49 +1208,12 @@ class AdminController {
   // Pricing and Discount Management
   static async getPricingPackages(req, res) {
     try {
-      const [packages] = await pool.execute(`
-        SELECT pp.*, 
-               COUNT(up.id) as total_purchases,
-               COUNT(CASE WHEN up.status = 'active' THEN 1 END) as active_subscriptions,
-               SUM(CASE WHEN up.purchased_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) as purchases_30d,
-               SUM(CASE WHEN up.purchased_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN pp.price ELSE 0 END) as revenue_30d,
-               SUM(pp.price) as total_revenue,
-               AVG(CASE WHEN up.status = 'active' THEN 1 ELSE 0 END) * 100 as adoption_rate
-        FROM pricing_packages pp
-        LEFT JOIN user_packages up ON pp.id = up.package_id
-        GROUP BY pp.id
-        ORDER BY pp.is_active DESC, total_revenue DESC, pp.price ASC
-      `);
-
-      // Get credit usage stats
-      const [usageStats] = await pool.execute(`
-        SELECT 
-          pp.name,
-          pp.id,
-          SUM(pp.post_credits - COALESCE(up.credits_remaining, 0)) as credits_used,
-          SUM(pp.featured_credits - COALESCE(up.featured_credits_remaining, 0)) as featured_credits_used,
-          COUNT(pu.id) as total_posts_created
-        FROM pricing_packages pp
-        LEFT JOIN user_packages up ON pp.id = up.package_id AND up.status = 'active'
-        LEFT JOIN package_usage pu ON up.id = pu.user_package_id
-        GROUP BY pp.id
-      `);
-
-      // Merge usage stats with package data
-      const packagesWithUsage = packages.map(pkg => {
-        const usage = usageStats.find(u => u.id === pkg.id) || { 
-          credits_used: 0, 
-          featured_credits_used: 0, 
-          total_posts_created: 0 
-        };
-        return {
-          ...pkg,
-          features: Array.isArray(pkg.features) ? pkg.features : (pkg.features ? [pkg.features] : []),
-          usage_stats: usage
-        };
+      // TODO: Implement pricing packages with MongoDB
+      res.json({ 
+        packages: [],
+        message: "Pricing packages feature not yet implemented for MongoDB" 
       });
 
-      res.json({ packages: packagesWithUsage });
     } catch (error) {
       console.error('Get pricing packages error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1357,41 +1391,11 @@ class AdminController {
   // Discount Management
   static async getDiscounts(req, res) {
     try {
-      const { active_only = false } = req.query;
-      
-      let query = `
-        SELECT d.*, 
-               u.first_name as created_by_name,
-               au.first_name as archived_by_name,
-               COUNT(dul.id) as actual_usage_count,
-               CASE 
-                 WHEN d.archived_at IS NOT NULL THEN 'archived'
-                 WHEN d.status = 'suspended' THEN 'suspended'
-                 WHEN d.status = 'expired' OR (d.expires_at IS NOT NULL AND d.expires_at < NOW()) THEN 'expired'
-                 WHEN d.max_uses IS NOT NULL AND d.usage_count >= d.max_uses THEN 'exhausted'
-                 WHEN d.is_active = 0 THEN 'disabled'
-                 ELSE d.status
-               END as computed_status
-        FROM discounts d
-        LEFT JOIN users u ON d.created_by = u.id
-        LEFT JOIN users au ON d.archived_by = au.id
-        LEFT JOIN discount_usage_log dul ON d.id = dul.discount_id
-        WHERE 1=1
-      `;
-
-      if (active_only === 'true') {
-        query += ` AND d.is_active = 1 
-                   AND d.archived_at IS NULL
-                   AND d.status IN ('valid', 'gift')
-                   AND (d.expires_at IS NULL OR d.expires_at > NOW())
-                   AND (d.max_uses IS NULL OR d.usage_count < d.max_uses)`;
-      }
-
-      query += ` GROUP BY d.id ORDER BY d.is_active DESC, d.created_at DESC`;
-
-      const [discounts] = await pool.execute(query);
-
-      res.json({ discounts });
+      // TODO: Implement discounts with MongoDB
+      res.json({ 
+        discounts: [],
+        message: "Discounts feature not yet implemented for MongoDB" 
+      });
     } catch (error) {
       console.error('Get discounts error:', error);
       res.status(500).json({ error: 'Internal server error' });

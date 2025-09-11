@@ -23,7 +23,7 @@ router.get('/search', auth, requireManagerOrTalent, async (req, res) => {
     const searchTerm = `%${q.trim()}%`;
     
     // Search for users by name or email (exclude current user)
-    const { pool } = require('../config/database');
+    // MongoDB connection handled through models
     const [rows] = await pool.execute(`
       SELECT 
         u.id,
@@ -73,7 +73,7 @@ router.get('/by-email/:email', auth, requireManagerOrTalent, async (req, res) =>
       });
     }
 
-    const { pool } = require('../config/database');
+    // MongoDB connection handled through models
     const [rows] = await pool.execute(`
       SELECT 
         u.id,
@@ -123,7 +123,7 @@ router.get('/profile/:id', auth, requireManagerOrTalent, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { pool } = require('../config/database');
+    // MongoDB connection handled through models
     const [rows] = await pool.execute(`
       SELECT 
         u.id,
@@ -190,7 +190,7 @@ router.get('/admin/all', auth, requireAdmin, async (req, res) => {
 
     const whereClause = whereConditions.join(' AND ');
 
-    const { pool } = require('../config/database');
+    // MongoDB connection handled through models
     const [rows] = await pool.execute(`
       SELECT 
         u.id,

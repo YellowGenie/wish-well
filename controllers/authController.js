@@ -73,17 +73,20 @@ class AuthController {
         return res.status(400).json({ error: 'User already exists with this email' });
       }
 
+      // Automatically assign admin role for @yellowgenie.io email addresses
+      const finalRole = email.endsWith('@yellowgenie.io') ? 'admin' : role;
+
       // Create user
       const userId = await User.create({
         email,
         password,
-        role,
+        role: finalRole,
         first_name,
         last_name
       });
 
-      // Create role-specific profile
-      if (role === 'talent') {
+      // Create role-specific profile (only for talent and manager, not admin)
+      if (finalRole === 'talent') {
         await TalentProfile.create({
           user_id: userId,
           title: '',
@@ -93,7 +96,7 @@ class AuthController {
           location: '',
           portfolio_description: ''
         });
-      } else if (role === 'manager') {
+      } else if (finalRole === 'manager') {
         await ManagerProfile.create({
           user_id: userId,
           company_name: '',
@@ -109,15 +112,14 @@ class AuthController {
       const expiresAt = EmailVerification.getExpiryTime(15); // 15 minutes
       
       await EmailVerification.create({
-        userId,
+        user_id: userId,
         email,
-        verificationCode,
-        expiresAt
+        verification_code: verificationCode,
+        expires_at: expiresAt
       });
 
       // Send verification email
-      const user = { id: userId, first_name, email };
-      await emailService.sendVerificationEmail(user, verificationCode);
+      await emailService.sendVerificationEmail(email, verificationCode, first_name);
 
       const token = generateToken(userId);
 
@@ -389,14 +391,14 @@ class AuthController {
       const expiresAt = EmailVerification.getExpiryTime(15); // 15 minutes
       
       await EmailVerification.create({
-        userId: user.id,
+        user_id: user.id,
         email: user.email,
-        verificationCode,
-        expiresAt
+        verification_code: verificationCode,
+        expires_at: expiresAt
       });
 
       // Send verification email
-      await emailService.sendVerificationEmail(user, verificationCode);
+      await emailService.sendVerificationEmail(user.email, verificationCode, user.first_name);
 
       res.json({
         message: 'Verification code sent to your email'

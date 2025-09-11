@@ -1,5 +1,5 @@
 const { body, validationResult } = require('express-validator');
-const { pool } = require('../config/database');
+// MongoDB connection handled through models
 const stripe = require('../config/stripe');
 const ManagerProfile = require('../models/ManagerProfile');
 
