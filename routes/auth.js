@@ -15,6 +15,9 @@ router.get('/profile', auth, AuthController.getProfile);
 router.put('/profile', auth, AuthController.updateProfile);
 router.post('/verify-email', auth, AuthController.validateVerifyCode, AuthController.verifyEmailCode);
 
+// Test email route (for development)
+router.post('/test-email', AuthController.testEmail);
+
 // Profile image routes
 router.post('/profile/image', auth, AuthController.uploadProfileImage, AuthController.handleProfileImageUpload);
 router.delete('/profile/image', auth, AuthController.deleteProfileImage);

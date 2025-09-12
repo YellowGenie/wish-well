@@ -13,7 +13,8 @@ app.use('*', (req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
     'https://dozyr.co',
-    'https://www.dozyr.co', 
+    'https://www.dozyr.co',
+    'https://app.dozyr.co',
     'https://dozyr.netlify.app',
     'https://dozyr.vercel.app',
     'http://localhost:3001',
@@ -91,8 +92,7 @@ app.use(helmet({
 // Add rate limiting
 app.use(apiLimiter);
 
-// Serve static files for uploads
-app.use('/uploads', express.static('uploads'));
+// Static file serving removed - using base64 data URLs for cloud hosting compatibility
 
 // API Routes with rate limiting (temporarily disabled for auth)
 console.log(`🔧 Mounting auth routes at /api/${API_VERSION}/auth`);
@@ -263,7 +263,8 @@ app.use('*', (req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
     'https://dozyr.co',
-    'https://www.dozyr.co', 
+    'https://www.dozyr.co',
+    'https://app.dozyr.co',
     'https://dozyr.netlify.app',
     'https://dozyr.vercel.app',
     'http://localhost:3001',
@@ -312,7 +313,8 @@ const startServer = async () => {
         cors: {
           origin: [
             'https://dozyr.co',
-            'https://www.dozyr.co', 
+            'https://www.dozyr.co',
+            'https://app.dozyr.co',
             'https://dozyr.netlify.app',
             'https://dozyr.vercel.app',
             'http://localhost:3001',

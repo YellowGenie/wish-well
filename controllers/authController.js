@@ -9,16 +9,8 @@ const EmailVerification = require('../models/EmailVerification');
 const emailService = require('../services/emailService');
 const { generateToken } = require('../utils/jwt');
 
-// Multer configuration for profile image uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/profile-images/')
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
-    cb(null, req.user.id + '-' + uniqueSuffix + path.extname(file.originalname))
-  }
-})
+// Multer configuration for profile image uploads (memory storage for cloud hosting)
+const storage = multer.memoryStorage()
 
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith('image/')) {
@@ -283,14 +275,22 @@ class AuthController {
         return res.status(400).json({ error: 'No image file provided' });
       }
 
-      const imageUrl = `/uploads/profile-images/${req.file.filename}`;
+      // Check file size (max 5MB)
+      if (req.file.size > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Image file too large. Maximum size is 5MB.' });
+      }
+
+      // Create base64 data URL for cloud hosting compatibility
+      const base64Data = req.file.buffer.toString('base64');
+      const mimeType = req.file.mimetype;
+      const imageDataUrl = `data:${mimeType};base64,${base64Data}`;
       
       // Update user's profile_image in database
-      await User.updateProfile(req.user.id, { profile_image: imageUrl });
+      await User.updateProfile(req.user.id, { profile_image: imageDataUrl });
 
       res.json({ 
         message: 'Profile image uploaded successfully',
-        image_url: imageUrl
+        image_url: imageDataUrl
       });
     } catch (error) {
       console.error('Profile image upload error:', error);
@@ -303,15 +303,7 @@ class AuthController {
       const user = await User.findById(req.user.id);
       
       if (user.profile_image) {
-        // Delete the file from filesystem
-        const filePath = path.join(__dirname, '..', user.profile_image);
-        try {
-          await fs.unlink(filePath);
-        } catch (fileError) {
-          console.warn('Could not delete profile image file:', fileError.message);
-        }
-
-        // Update database
+        // Update database (no filesystem cleanup needed for base64 data)
         await User.updateProfile(req.user.id, { profile_image: null });
       }
 
@@ -429,6 +421,69 @@ class AuthController {
       res.status(500).json({ 
         success: false, 
         error: 'Internal server error' 
+      });
+    }
+  }
+
+  // Test email functionality
+  static async testEmail(req, res) {
+    try {
+      const { email } = req.body;
+      
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email address is required'
+        });
+      }
+
+      // Test the connection first
+      const connectionTest = await emailService.testConnection();
+      if (!connectionTest.success) {
+        return res.status(500).json({
+          success: false,
+          error: `SMTP Connection failed: ${connectionTest.error}`
+        });
+      }
+
+      // Send a test email
+      const result = await emailService.sendEmail({
+        to: email,
+        subject: 'Dozyr Email Test',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #7c3aed;">🎉 Email Configuration Test</h2>
+            <p>Congratulations! Your Dozyr email service is working correctly.</p>
+            <p>This test email was sent from: <strong>hello@dozyr.co</strong></p>
+            <p>Configuration details:</p>
+            <ul>
+              <li>SMTP Host: mail.dozyr.co</li>
+              <li>Port: 465 (SSL)</li>
+              <li>From: hello@dozyr.co</li>
+            </ul>
+            <p style="color: #059669;">✅ Email service is operational!</p>
+          </div>
+        `,
+        text: 'Dozyr email test - Your email service is working correctly!'
+      });
+
+      if (result.success) {
+        res.json({
+          success: true,
+          message: 'Test email sent successfully!',
+          messageId: result.messageId
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: `Failed to send email: ${result.error}`
+        });
+      }
+    } catch (error) {
+      console.error('Test email error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
       });
     }
   }
