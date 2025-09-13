@@ -95,6 +95,7 @@ module.exports = {
   auth,
   requireRole,
   requireAdmin,
+  adminAuth: requireAdmin, // Alias for consistency
   requireManager,
   requireTalent,
   requireManagerOrTalent,

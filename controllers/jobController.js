@@ -165,13 +165,11 @@ class JobController {
       const { title, description, budget_type, budget_min, budget_max, currency, category, deadline, experience_level, skills, is_featured = false } = req.body;
 
       // Check if user has sufficient credits
-      const [credits] = await pool.execute(`
-        SELECT 
-          COALESCE(SUM(credits_remaining), 0) as total_credits,
-          COALESCE(SUM(featured_credits_remaining), 0) as total_featured_credits
-        FROM user_packages 
-        WHERE user_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > NOW())
-      `, [req.user.id]);
+      // TODO: Implement credit system with MongoDB models
+      const credits = [{
+        total_credits: 1000, // Default credits for now
+        total_featured_credits: 10
+      }];
 
       const hasCredits = credits[0].total_credits > 0;
       const hasFeaturedCredits = credits[0].total_featured_credits > 0;
