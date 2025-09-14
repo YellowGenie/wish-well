@@ -32,6 +32,10 @@ const talentProfileSchema = new mongoose.Schema({
   portfolio_description: {
     type: String,
     trim: true
+  },
+  profile_picture: {
+    type: String,
+    trim: true
   }
 }, {
   timestamps: {

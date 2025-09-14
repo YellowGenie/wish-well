@@ -199,7 +199,7 @@ class AuthController {
           role: user.role,
           first_name: user.first_name,
           last_name: user.last_name,
-          profile_image: user.profile_image,
+          profile_image: user.profile_image ? user.profile_image.replace('/api/file/', '/uploads/') : user.profile_image,
           is_active: Boolean(user.is_active),
           email_verified: Boolean(user.email_verified),
           created_at: user.created_at

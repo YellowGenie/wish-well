@@ -27,6 +27,10 @@ const managerProfileSchema = new mongoose.Schema({
   location: {
     type: String,
     trim: true
+  },
+  profile_picture: {
+    type: String,
+    trim: true
   }
 }, {
   timestamps: {

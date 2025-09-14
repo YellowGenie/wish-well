@@ -67,6 +67,7 @@ const escrowRoutes = require('./routes/escrow');
 const milestoneRoutes = require('./routes/milestones');
 const adminEscrowRoutes = require('./routes/admin/escrows');
 const adminContractRoutes = require('./routes/admin/contracts');
+const adminAIRoutes = require('./routes/admin/aiManagement');
 const messageRoutes = require('./routes/messages');
 const profileRoutes = require('./routes/profiles');
 const skillRoutes = require('./routes/skills');
@@ -76,10 +77,13 @@ const paymentRoutes = require('./routes/payments');
 const packageRoutes = require('./routes/packages');
 // const adminNotificationRoutes = require('./routes/adminNotifications'); // Disabled during migration
 // const adminNotificationTemplateRoutes = require('./routes/adminNotificationTemplates'); // Disabled during migration  
-// const userNotificationRoutes = require('./routes/userNotifications'); // Disabled during migration
+const userNotificationRoutes = require('./routes/userNotifications');
 const interviewRoutes = require('./routes/interviews');
 const conversationRoutes = require('./routes/conversations');
 const userRoutes = require('./routes/users');
+const fileRoutes = require('./routes/files');
+const proxyRoutes = require('./routes/proxy');
+const aiRoutes = require('./routes/ai');
 
 // Add security middleware
 app.use(helmet({
@@ -109,6 +113,7 @@ app.use(`/api/${API_VERSION}/escrow`, escrowRoutes);
 app.use(`/api/${API_VERSION}/contracts`, milestoneRoutes);
 app.use(`/api/${API_VERSION}/admin/escrows`, adminEscrowRoutes);
 app.use(`/api/${API_VERSION}/admin/contracts`, adminContractRoutes);
+app.use(`/api/${API_VERSION}/admin/ai`, adminAIRoutes);
 app.use(`/api/${API_VERSION}/messages`, messageLimiter, messageRoutes);
 app.use(`/api/${API_VERSION}/profiles`, profileRoutes);
 app.use(`/api/${API_VERSION}/skills`, skillRoutes);
@@ -118,10 +123,13 @@ app.use(`/api/${API_VERSION}/payments`, paymentRoutes);
 app.use(`/api/${API_VERSION}/packages`, packageRoutes);
 // app.use(`/api/${API_VERSION}/admin/notifications`, adminNotificationRoutes); // Disabled during migration
 // app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTemplateRoutes); // Disabled during migration
-// app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes); // Disabled during migration
+app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes);
 app.use(`/api/${API_VERSION}/interviews`, messageLimiter, interviewRoutes);
 app.use(`/api/${API_VERSION}/conversations`, messageLimiter, conversationRoutes);
 app.use(`/api/${API_VERSION}/users`, apiLimiter, userRoutes);
+app.use(`/api/${API_VERSION}/files`, fileRoutes);
+app.use(`/api/${API_VERSION}/proxy`, proxyRoutes);
+app.use(`/api/${API_VERSION}/ai`, aiRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
@@ -258,6 +266,11 @@ app.get(`/api/${API_VERSION}/docs`, (req, res) => {
         'GET /admin/users': 'Get all users (admin only)',
         'GET /admin/jobs': 'Get all jobs (admin only)',
         'GET /admin/analytics': 'Get analytics report (admin only)'
+      },
+      ai: {
+        'GET /ai/welcome': 'Get AI welcome message for current user',
+        'POST /ai/chat': 'Send message to AI assistant (ChatGPT 3.5 Turbo)',
+        'GET /ai/health': 'Check AI service health status'
       }
     },
     authentication: {
