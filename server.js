@@ -15,8 +15,8 @@ app.use('*', (req, res, next) => {
     'https://dozyr.co',
     'https://www.dozyr.co',
     'https://app.dozyr.co',
+    'https://filestore.dozyr.co',
     'https://dozyr.netlify.app',
-    'https://dozyr.vercel.app',
     'http://localhost:3001',
     'http://localhost:3000'
   ];
