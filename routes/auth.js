@@ -9,6 +9,8 @@ router.post('/register', AuthController.validateRegister, AuthController.registe
 router.post('/login', AuthController.validateLogin, AuthController.login);
 router.post('/logout', AuthController.logout);
 router.post('/resend-verification', AuthController.validateResendCode, AuthController.resendVerificationCode);
+router.post('/forgot-password', AuthController.validateForgotPassword, AuthController.forgotPassword);
+router.post('/reset-password', AuthController.validateResetPassword, AuthController.resetPassword);
 
 // Protected routes
 router.get('/profile', auth, AuthController.getProfile);

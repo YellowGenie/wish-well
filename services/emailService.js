@@ -114,6 +114,104 @@ class EmailService {
     return await this.sendEmail({ to: email, subject, html, text });
   }
 
+  async sendPasswordResetEmail(email, resetToken, firstName) {
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/reset-password?token=${resetToken}`;
+
+    const subject = 'Reset Your Dozyr Password';
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Reset Your Password</title>
+        </head>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px;">
+          <div style="max-width: 600px; margin: 0 auto; background-color: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
+            <!-- Header -->
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
+              <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 600;">Reset Your Password</h1>
+            </div>
+
+            <!-- Content -->
+            <div style="padding: 40px 30px;">
+              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                Hi <strong>${firstName || 'there'}</strong>,
+              </p>
+
+              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
+                We received a request to reset your Dozyr password. Click the button below to create a new password:
+              </p>
+
+              <!-- Reset Button -->
+              <div style="text-align: center; margin: 30px 0;">
+                <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
+                  <tr>
+                    <td style="background-color: #667eea; border-radius: 8px; text-align: center;">
+                      <a href="${resetUrl}"
+                         style="background-color: #667eea;
+                                color: #ffffff;
+                                text-decoration: none;
+                                padding: 16px 32px;
+                                border-radius: 8px;
+                                font-weight: 600;
+                                font-size: 16px;
+                                display: inline-block;
+                                font-family: Arial, sans-serif;
+                                line-height: 1.4;
+                                text-align: center;">
+                        🔑 Reset My Password
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Alternative Link -->
+              <div style="margin: 30px 0; padding: 20px; background-color: #f9fafb; border-radius: 8px; border-left: 4px solid #3b82f6;">
+                <p style="color: #374151; font-size: 14px; line-height: 1.6; margin: 0 0 10px 0;">
+                  <strong>Can't click the button?</strong> Copy and paste this link into your browser:
+                </p>
+                <p style="color: #3b82f6; font-size: 14px; word-break: break-all; margin: 0;">
+                  ${resetUrl}
+                </p>
+              </div>
+
+              <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 30px 0 0 0;">
+                <strong>Security Notice:</strong> This password reset link will expire in 1 hour for your security.
+                If you didn't request a password reset, please ignore this email or contact our support team.
+              </p>
+            </div>
+
+            <!-- Footer -->
+            <div style="background-color: #f9fafb; padding: 20px 30px; border-top: 1px solid #e5e7eb;">
+              <p style="color: #6b7280; font-size: 12px; text-align: center; margin: 0;">
+                © ${new Date().getFullYear()} Dozyr. All rights reserved.<br>
+                This email was sent to ${email}
+              </p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const text = `
+Hi ${firstName || 'there'},
+
+We received a request to reset your Dozyr password. Click the link below to create a new password:
+
+${resetUrl}
+
+This link will expire in 1 hour for your security.
+
+If you didn't request a password reset, please ignore this email.
+
+© ${new Date().getFullYear()} Dozyr. All rights reserved.
+    `;
+
+    return await this.sendEmail({ to: email, subject, html, text });
+  }
+
   async testConnection() {
     if (!this.transporter) {
       console.log('❌ Email transporter not initialized');

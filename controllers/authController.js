@@ -6,6 +6,7 @@ const User = require('../models/User');
 const TalentProfile = require('../models/TalentProfile');
 const ManagerProfile = require('../models/ManagerProfile');
 const EmailVerification = require('../models/EmailVerification');
+const PasswordReset = require('../models/PasswordReset');
 const emailService = require('../services/emailService');
 const { generateToken } = require('../utils/jwt');
 
@@ -48,6 +49,15 @@ class AuthController {
 
   static validateResendCode = [
     body('email').isEmail().normalizeEmail()
+  ];
+
+  static validateForgotPassword = [
+    body('email').isEmail().normalizeEmail()
+  ];
+
+  static validateResetPassword = [
+    body('token').isLength({ min: 64, max: 64 }),
+    body('password').isLength({ min: 6 })
   ];
 
   static async register(req, res) {
@@ -426,6 +436,96 @@ class AuthController {
   }
 
   // Test email functionality
+  static async forgotPassword(req, res) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { email } = req.body;
+
+      // Find user by email
+      const user = await User.findOne({ email });
+
+      // Always return success for security (don't reveal if email exists)
+      if (!user) {
+        return res.json({
+          message: 'If an account with that email exists, you will receive a password reset link shortly.'
+        });
+      }
+
+      // Delete any existing password reset tokens for this user
+      await PasswordReset.deleteByUserId(user._id);
+
+      // Generate new reset token
+      const resetToken = PasswordReset.generateToken();
+      const expiresAt = PasswordReset.getExpiryTime(1); // 1 hour
+
+      // Create password reset record
+      const passwordReset = new PasswordReset({
+        user_id: user._id,
+        email: user.email,
+        token: resetToken,
+        expires_at: expiresAt
+      });
+
+      await passwordReset.save();
+
+      // Send password reset email
+      await emailService.sendPasswordResetEmail(user.email, resetToken, user.first_name);
+
+      res.json({
+        message: 'If an account with that email exists, you will receive a password reset link shortly.'
+      });
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async resetPassword(req, res) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { token, password } = req.body;
+
+      // Find valid reset token
+      const resetRecord = await PasswordReset.findByToken(token);
+
+      if (!resetRecord) {
+        return res.status(400).json({
+          error: 'Invalid or expired reset token'
+        });
+      }
+
+      // Get user
+      const user = await User.findById(resetRecord.user_id);
+      if (!user) {
+        return res.status(400).json({
+          error: 'User not found'
+        });
+      }
+
+      // Update user password
+      user.password = password;
+      await user.save();
+
+      // Mark reset token as used
+      await PasswordReset.markAsUsed(token);
+
+      res.json({
+        message: 'Password has been reset successfully. You can now login with your new password.'
+      });
+    } catch (error) {
+      console.error('Reset password error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
   static async testEmail(req, res) {
     try {
       const { email } = req.body;

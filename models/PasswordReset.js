@@ -1,86 +1,96 @@
-const pool = require('../config/database');
+const { mongoose } = require('../config/mongodb');
 const crypto = require('crypto');
 
-class PasswordReset {
-  static async create({ user_id, email, token, expires_at }) {
-    const query = `
-      INSERT INTO password_resets (user_id, email, token, expires_at, created_at)
-      VALUES (?, ?, ?, ?, NOW())
-    `;
-
-    const [result] = await pool.execute(query, [user_id, email, token, expires_at]);
-    return result.insertId;
+// Password Reset Schema
+const passwordResetSchema = new mongoose.Schema({
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    ref: 'User'
+  },
+  email: {
+    type: String,
+    required: true,
+    lowercase: true,
+    trim: true
+  },
+  token: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  expires_at: {
+    type: Date,
+    required: true
+  },
+  used_at: {
+    type: Date,
+    default: null
   }
-
-  static async findByToken(token) {
-    const query = `
-      SELECT pr.*, u.email, u.first_name, u.last_name
-      FROM password_resets pr
-      JOIN users u ON pr.user_id = u.id
-      WHERE pr.token = ?
-      AND pr.expires_at > NOW()
-      AND pr.used_at IS NULL
-      ORDER BY pr.created_at DESC
-      LIMIT 1
-    `;
-
-    const [rows] = await pool.execute(query, [token]);
-    return rows[0];
+}, {
+  timestamps: {
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
   }
+});
 
-  static async findByEmail(email) {
-    const query = `
-      SELECT pr.*
-      FROM password_resets pr
-      JOIN users u ON pr.user_id = u.id
-      WHERE u.email = ?
-      AND pr.expires_at > NOW()
-      AND pr.used_at IS NULL
-      ORDER BY pr.created_at DESC
-      LIMIT 1
-    `;
+// Create indexes for performance
+passwordResetSchema.index({ token: 1 });
+passwordResetSchema.index({ user_id: 1 });
+passwordResetSchema.index({ email: 1 });
+passwordResetSchema.index({ expires_at: 1 });
 
-    const [rows] = await pool.execute(query, [email]);
-    return rows[0];
-  }
+// Static methods
+passwordResetSchema.statics.generateToken = function() {
+  return crypto.randomBytes(32).toString('hex');
+};
 
-  static async markAsUsed(token) {
-    const query = `
-      UPDATE password_resets
-      SET used_at = NOW()
-      WHERE token = ?
-    `;
+passwordResetSchema.statics.getExpiryTime = function(hours = 1) {
+  const expiryTime = new Date();
+  expiryTime.setHours(expiryTime.getHours() + hours);
+  return expiryTime;
+};
 
-    await pool.execute(query, [token]);
-  }
+passwordResetSchema.statics.findByToken = async function(token) {
+  return this.findOne({
+    token,
+    expires_at: { $gt: new Date() },
+    used_at: null
+  }).populate('user_id', 'email first_name last_name');
+};
 
-  static async deleteExpiredTokens() {
-    const query = `
-      DELETE FROM password_resets
-      WHERE expires_at < NOW() OR used_at IS NOT NULL
-    `;
+passwordResetSchema.statics.findByEmail = async function(email) {
+  const User = require('./User');
+  const user = await User.findOne({ email });
+  if (!user) return null;
 
-    await pool.execute(query);
-  }
+  return this.findOne({
+    user_id: user._id,
+    expires_at: { $gt: new Date() },
+    used_at: null
+  }).sort({ created_at: -1 });
+};
 
-  static async deleteByUserId(user_id) {
-    const query = `
-      DELETE FROM password_resets
-      WHERE user_id = ?
-    `;
+passwordResetSchema.statics.markAsUsed = async function(token) {
+  return this.updateOne(
+    { token },
+    { used_at: new Date() }
+  );
+};
 
-    await pool.execute(query, [user_id]);
-  }
+passwordResetSchema.statics.deleteExpiredTokens = async function() {
+  return this.deleteMany({
+    $or: [
+      { expires_at: { $lt: new Date() } },
+      { used_at: { $ne: null } }
+    ]
+  });
+};
 
-  static generateToken() {
-    return crypto.randomBytes(32).toString('hex');
-  }
+passwordResetSchema.statics.deleteByUserId = async function(userId) {
+  return this.deleteMany({ user_id: userId });
+};
 
-  static getExpiryTime(hours = 1) {
-    const expiryTime = new Date();
-    expiryTime.setHours(expiryTime.getHours() + hours);
-    return expiryTime;
-  }
-}
+const PasswordReset = mongoose.model('PasswordReset', passwordResetSchema);
 
 module.exports = PasswordReset;
