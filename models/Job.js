@@ -51,6 +51,14 @@ const jobSchema = new mongoose.Schema({
     enum: ['entry', 'intermediate', 'expert'],
     default: 'intermediate'
   },
+  featured: {
+    type: Boolean,
+    default: false
+  },
+  location: {
+    type: String,
+    default: 'Remote'
+  },
   skills: [{
     skill_id: {
       type: mongoose.Schema.Types.ObjectId,
@@ -136,8 +144,8 @@ jobSchema.statics.deleteJob = async function(id) {
 };
 
 jobSchema.statics.searchJobs = async function({
-  skills = [], budget_min, budget_max, budget_type, category, 
-  experience_level, search_query, sort_by = 'created_at', 
+  skills = [], budget_min, budget_max, budget_type, category,
+  experience_level, search_query, sort_by = 'created_at',
   sort_order = 'DESC', page = 1, limit = 20
 }) {
   try {
@@ -150,7 +158,7 @@ jobSchema.statics.searchJobs = async function({
     if (budget_type) query.budget_type = budget_type;
     if (category) query.category = { $regex: new RegExp(category, 'i') };
     if (experience_level) query.experience_level = experience_level;
-    
+
     // Text search
     if (search_query) {
       query.$text = { $search: search_query };
@@ -164,7 +172,7 @@ jobSchema.statics.searchJobs = async function({
       .limit(limit);
 
     const total = await this.countDocuments(query);
-    
+
     return {
       jobs,
       total,
@@ -173,6 +181,54 @@ jobSchema.statics.searchJobs = async function({
     };
   } catch (error) {
     console.error('Error searching jobs:', error);
+    throw error;
+  }
+};
+
+jobSchema.statics.getFeaturedJobs = async function(limit = 10) {
+  try {
+    const jobs = await this.find({ status: 'open', featured: true })
+      .populate('manager_id')
+      .populate('skills.skill_id')
+      .sort({ created_at: -1 })
+      .limit(limit);
+
+    return jobs;
+  } catch (error) {
+    console.error('Error fetching featured jobs:', error);
+    throw error;
+  }
+};
+
+jobSchema.statics.getAllJobsPaginated = async function({
+  page = 1,
+  limit = 20,
+  sort_by = 'created_at',
+  sort_order = 'DESC'
+}) {
+  try {
+    const skip = (page - 1) * limit;
+    let query = { status: 'open' };
+
+    let jobs = await this.find(query)
+      .populate('manager_id')
+      .populate('skills.skill_id')
+      .sort({ [sort_by]: sort_order.toLowerCase() === 'asc' ? 1 : -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await this.countDocuments(query);
+
+    return {
+      jobs,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      hasNextPage: page < Math.ceil(total / limit),
+      hasPrevPage: page > 1
+    };
+  } catch (error) {
+    console.error('Error fetching jobs:', error);
     throw error;
   }
 };

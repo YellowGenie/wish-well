@@ -172,6 +172,23 @@ class ProfileController {
     }
   }
 
+  static async getTalentDashboard(req, res) {
+    try {
+      // Get talent profile
+      const talentProfile = await TalentProfile.findByUserId(req.user.id);
+      if (!talentProfile) {
+        return res.status(400).json({ error: 'Talent profile not found' });
+      }
+
+      const dashboardData = await TalentProfile.getDashboardStats(talentProfile._id);
+
+      res.json(dashboardData);
+    } catch (error) {
+      console.error('Get talent dashboard error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
   // Manager Profile Controllers
   static validateManagerProfile = [
     body('company_name').optional().trim().isLength({ max: 255 }),

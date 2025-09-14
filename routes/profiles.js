@@ -14,6 +14,7 @@ router.get('/managers/:id', ProfileController.getManagerProfile);
 // Talent-only routes
 router.get('/talent/me', auth, requireTalent, ProfileController.getMyTalentProfile);
 router.put('/talent/me', auth, requireTalent, ProfileController.validateTalentProfile, ProfileController.updateTalentProfile);
+router.get('/talent/dashboard', auth, requireTalent, ProfileController.getTalentDashboard);
 router.post('/talent/me/skills', auth, requireTalent, ProfileController.addSkillToTalent);
 router.delete('/talent/me/skills/:skill_id', auth, requireTalent, ProfileController.removeSkillFromTalent);
 

@@ -429,6 +429,91 @@ class JobController {
     }
   }
 
+  static async getAllJobs(req, res) {
+    try {
+      const {
+        page = 1,
+        limit = 20,
+        sort_by = 'created_at',
+        sort_order = 'DESC'
+      } = req.query;
+
+      const result = await Job.getAllJobsPaginated({
+        page: parseInt(page),
+        limit: parseInt(limit),
+        sort_by,
+        sort_order
+      });
+
+      // Transform jobs to match frontend format
+      const transformedJobs = result.jobs.map(job => ({
+        id: job._id.toString(),
+        title: job.title,
+        description: job.description,
+        company_name: job.manager_id?.user_id?.first_name && job.manager_id?.user_id?.last_name
+          ? `${job.manager_id.user_id.first_name} ${job.manager_id.user_id.last_name}`
+          : 'Unknown Company',
+        location: job.location || 'Remote',
+        job_type: 'contract', // Default job type
+        experience_level: job.experience_level,
+        budget_min: job.budget_min,
+        budget_max: job.budget_max,
+        currency: job.currency,
+        skills: job.skills.map(s => s.skill_id?.name).filter(Boolean),
+        featured: job.featured || false,
+        status: job.status,
+        created_at: job.created_at,
+        applicant_count: 0 // Default for now
+      }));
+
+      res.json({
+        jobs: transformedJobs,
+        total: result.total,
+        page: result.page,
+        totalPages: result.totalPages,
+        hasNextPage: result.hasNextPage,
+        hasPrevPage: result.hasPrevPage
+      });
+    } catch (error) {
+      console.error('Get all jobs error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async getFeaturedJobs(req, res) {
+    try {
+      const { limit = 10 } = req.query;
+
+      const jobs = await Job.getFeaturedJobs(parseInt(limit));
+
+      // Transform jobs to match frontend format
+      const transformedJobs = jobs.map(job => ({
+        id: job._id.toString(),
+        title: job.title,
+        description: job.description,
+        company_name: job.manager_id?.user_id?.first_name && job.manager_id?.user_id?.last_name
+          ? `${job.manager_id.user_id.first_name} ${job.manager_id.user_id.last_name}`
+          : 'Unknown Company',
+        location: job.location || 'Remote',
+        job_type: 'contract',
+        experience_level: job.experience_level,
+        budget_min: job.budget_min,
+        budget_max: job.budget_max,
+        currency: job.currency,
+        skills: job.skills.map(s => s.skill_id?.name).filter(Boolean),
+        featured: true,
+        status: job.status,
+        created_at: job.created_at,
+        applicant_count: 0
+      }));
+
+      res.json({ jobs: transformedJobs });
+    } catch (error) {
+      console.error('Get featured jobs error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
   static async searchJobs(req, res) {
     try {
       const errors = validationResult(req);
@@ -466,9 +551,35 @@ class JobController {
         sort_order
       };
 
-      const result = await Job.search(searchParams);
+      const result = await Job.searchJobs(searchParams);
 
-      res.json(result);
+      // Transform jobs to match frontend format
+      const transformedJobs = result.jobs.map(job => ({
+        id: job._id.toString(),
+        title: job.title,
+        description: job.description,
+        company_name: job.manager_id?.user_id?.first_name && job.manager_id?.user_id?.last_name
+          ? `${job.manager_id.user_id.first_name} ${job.manager_id.user_id.last_name}`
+          : 'Unknown Company',
+        location: job.location || 'Remote',
+        job_type: 'contract',
+        experience_level: job.experience_level,
+        budget_min: job.budget_min,
+        budget_max: job.budget_max,
+        currency: job.currency,
+        skills: job.skills.map(s => s.skill_id?.name).filter(Boolean),
+        featured: job.featured || false,
+        status: job.status,
+        created_at: job.created_at,
+        applicant_count: 0
+      }));
+
+      res.json({
+        jobs: transformedJobs,
+        total: result.total,
+        page: result.page,
+        totalPages: result.totalPages
+      });
     } catch (error) {
       console.error('Search jobs error:', error);
       res.status(500).json({ error: 'Internal server error' });

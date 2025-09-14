@@ -5,6 +5,8 @@ const { auth, requireManager } = require('../middleware/auth');
 const router = express.Router();
 
 // Public routes
+router.get('/', JobController.getAllJobs);
+router.get('/featured', JobController.getFeaturedJobs);
 router.get('/search', JobController.validateSearchJobs, JobController.searchJobs);
 
 // Protected routes - Manager only (specific routes before generic :id routes)
