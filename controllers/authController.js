@@ -532,7 +532,7 @@ class AuthController {
   static async testEmail(req, res) {
     try {
       const { email } = req.body;
-      
+
       if (!email) {
         return res.status(400).json({
           success: false,
@@ -584,6 +584,42 @@ class AuthController {
       }
     } catch (error) {
       console.error('Test email error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
+  }
+
+  static async emailStatus(req, res) {
+    try {
+      const status = emailService.getStatus();
+      res.json({
+        success: true,
+        status: status,
+        environment: process.env.NODE_ENV || 'development'
+      });
+    } catch (error) {
+      console.error('Email status error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
+  }
+
+  static async reinitializeEmail(req, res) {
+    try {
+      console.log('🔄 Manual email service reinitialization requested');
+      const result = await emailService.forceReinitialize();
+
+      res.json({
+        success: result.success,
+        message: result.message || result.error,
+        status: emailService.getStatus()
+      });
+    } catch (error) {
+      console.error('Email reinitialization error:', error);
       res.status(500).json({
         success: false,
         error: 'Internal server error'

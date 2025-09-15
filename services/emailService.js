@@ -35,11 +35,23 @@ class EmailService {
   async initializeTransporter() {
     console.log('🔧 Initializing email transporter...');
     await this.loadSettings();
-    
+
+    // Enhanced debugging for production environment
+    console.log('🔍 Environment variables check:');
+    console.log('- NODE_ENV:', process.env.NODE_ENV);
+    console.log('- SMTP_HOST exists:', !!process.env.SMTP_HOST);
+    console.log('- SMTP_PORT exists:', !!process.env.SMTP_PORT);
+    console.log('- SMTP_USERNAME exists:', !!process.env.SMTP_USERNAME);
+    console.log('- SMTP_PASSWORD exists:', !!process.env.SMTP_PASSWORD);
+    console.log('- SMTP_SECURE exists:', !!process.env.SMTP_SECURE);
+    console.log('- FROM_EMAIL exists:', !!process.env.FROM_EMAIL);
+
     if (!this.settings.smtp_username || !this.settings.smtp_password) {
       console.log('⚠️ SMTP credentials not configured, skipping email setup');
-      console.log('Debug - smtp_username:', this.settings.smtp_username);
+      console.log('Debug - smtp_username:', this.settings.smtp_username ? 'EXISTS' : 'MISSING');
       console.log('Debug - smtp_password:', this.settings.smtp_password ? 'EXISTS' : 'MISSING');
+      console.log('Debug - Raw SMTP_USERNAME env:', process.env.SMTP_USERNAME ? 'EXISTS' : 'MISSING');
+      console.log('Debug - Raw SMTP_PASSWORD env:', process.env.SMTP_PASSWORD ? 'EXISTS' : 'MISSING');
       return;
     }
 
@@ -227,6 +239,30 @@ If you didn't request a password reset, please ignore this email.
       console.error('❌ Email connection test failed:', error);
       return { success: false, error: error.message };
     }
+  }
+
+  async forceReinitialize() {
+    console.log('🔄 Force reinitializing email transporter...');
+    this.transporter = null;
+    this.settings = {};
+    await this.initializeTransporter();
+    return this.transporter ?
+      { success: true, message: 'Email transporter reinitialized successfully' } :
+      { success: false, error: 'Failed to reinitialize email transporter' };
+  }
+
+  getStatus() {
+    return {
+      initialized: !!this.transporter,
+      settings: {
+        smtp_host: this.settings.smtp_host || 'not set',
+        smtp_port: this.settings.smtp_port || 'not set',
+        smtp_username: this.settings.smtp_username ? 'set' : 'not set',
+        smtp_password: this.settings.smtp_password ? 'set' : 'not set',
+        smtp_secure: this.settings.smtp_secure || 'not set',
+        from_email: this.settings.from_email || 'not set'
+      }
+    };
   }
 }
 
