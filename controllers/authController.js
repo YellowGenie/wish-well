@@ -445,8 +445,8 @@ class AuthController {
 
       const { email } = req.body;
 
-      // Find user by email
-      const user = await User.findOne({ email });
+      // Find user by email using custom User model method
+      const user = await User.findByEmail(email);
 
       // Always return success for security (don't reveal if email exists)
       if (!user) {
@@ -462,7 +462,7 @@ class AuthController {
       const resetToken = PasswordReset.generateToken();
       const expiresAt = PasswordReset.getExpiryTime(1); // 1 hour
 
-      // Create password reset record
+      // Create password reset record using Mongoose model
       const passwordReset = new PasswordReset({
         user_id: user._id,
         email: user.email,
@@ -473,7 +473,9 @@ class AuthController {
       await passwordReset.save();
 
       // Send password reset email
-      await emailService.sendPasswordResetEmail(user.email, resetToken, user.first_name);
+      console.log('📧 Sending password reset email to:', user.email);
+      const emailResult = await emailService.sendPasswordResetEmail(user.email, resetToken, user.first_name);
+      console.log('📧 Email result:', emailResult);
 
       res.json({
         message: 'If an account with that email exists, you will receive a password reset link shortly.'
@@ -502,17 +504,18 @@ class AuthController {
         });
       }
 
-      // Get user
-      const user = await User.findById(resetRecord.user_id);
+      // Get user using custom User model method
+      const user = await User.findByEmail(resetRecord.email);
       if (!user) {
         return res.status(400).json({
           error: 'User not found'
         });
       }
 
-      // Update user password
-      user.password = password;
-      await user.save();
+      // Update user password using Mongoose instance method (password hashing happens in pre-save middleware)
+      const userInstance = await require('../models/User').findOne({ _id: user._id });
+      userInstance.password = password;
+      await userInstance.save();
 
       // Mark reset token as used
       await PasswordReset.markAsUsed(token);
