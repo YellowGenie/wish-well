@@ -58,21 +58,35 @@ class EmailService {
     }
 
     try {
+      const isSecure = this.settings.smtp_secure === 'true';
+      const port = parseInt(this.settings.smtp_port);
+
       const transporterConfig = {
         host: this.settings.smtp_host,
-        port: parseInt(this.settings.smtp_port),
-        secure: this.settings.smtp_secure === 'true',
+        port: port,
+        secure: isSecure, // true for 465, false for other ports
         auth: {
           user: this.settings.smtp_username,
           pass: this.settings.smtp_password
+        },
+        tls: {
+          rejectUnauthorized: false,
+          // Don't specify ciphers to let the system choose the best available
         }
       };
+
+      // For non-secure ports, require TLS
+      if (!isSecure) {
+        transporterConfig.requireTLS = true;
+      }
 
       console.log('📧 Creating transporter with config:', {
         host: transporterConfig.host,
         port: transporterConfig.port,
         secure: transporterConfig.secure,
-        auth: { user: transporterConfig.auth.user, pass: '***masked***' }
+        requireTLS: transporterConfig.requireTLS || false,
+        auth: { user: transporterConfig.auth.user, pass: '***masked***' },
+        tls_rejectUnauthorized: transporterConfig.tls.rejectUnauthorized
       });
 
       this.transporter = nodemailer.createTransport(transporterConfig);

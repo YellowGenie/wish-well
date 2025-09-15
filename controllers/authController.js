@@ -597,7 +597,15 @@ class AuthController {
       res.json({
         success: true,
         status: status,
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        debug: {
+          smtp_host: process.env.SMTP_HOST || 'NOT_SET',
+          smtp_port: process.env.SMTP_PORT || 'NOT_SET',
+          smtp_username: process.env.SMTP_USERNAME || 'NOT_SET',
+          smtp_password_length: process.env.SMTP_PASSWORD ? process.env.SMTP_PASSWORD.length : 0,
+          smtp_secure: process.env.SMTP_SECURE || 'NOT_SET',
+          from_email: process.env.FROM_EMAIL || 'NOT_SET'
+        }
       });
     } catch (error) {
       console.error('Email status error:', error);
