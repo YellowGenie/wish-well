@@ -317,7 +317,14 @@ const startServer = async () => {
   // Initialize email service first
   console.log('🚀 Initializing core services...');
   const emailService = require('./services/emailService');
-  await emailService.initializeTransporter();
+
+  try {
+    await emailService.initializeTransporter();
+    console.log('✅ Email service initialization completed');
+  } catch (error) {
+    console.error('❌ Email service initialization failed:', error);
+    console.log('⚠️ Server will continue without email functionality');
+  }
 
   // Start server immediately
   server.listen(PORT, () => {

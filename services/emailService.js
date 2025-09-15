@@ -18,7 +18,7 @@ class EmailService {
         from_email: process.env.FROM_EMAIL || 'noreply@dozyr.com',
         from_name: process.env.FROM_NAME || 'Dozyr'
       };
-      
+
       console.log('✅ Email settings loaded:', {
         smtp_host: this.settings.smtp_host,
         smtp_port: this.settings.smtp_port,
@@ -27,31 +27,33 @@ class EmailService {
         smtp_secure: this.settings.smtp_secure,
         from_email: this.settings.from_email
       });
+
+      return true;
     } catch (error) {
       console.error('❌ Error loading email settings:', error);
+      return false;
     }
   }
 
   async initializeTransporter() {
     console.log('🔧 Initializing email transporter...');
-    await this.loadSettings();
 
-    // Enhanced debugging for production environment
-    console.log('🔍 Environment variables check:');
-    console.log('- NODE_ENV:', process.env.NODE_ENV);
-    console.log('- SMTP_HOST exists:', !!process.env.SMTP_HOST);
-    console.log('- SMTP_PORT exists:', !!process.env.SMTP_PORT);
-    console.log('- SMTP_USERNAME exists:', !!process.env.SMTP_USERNAME);
-    console.log('- SMTP_PASSWORD exists:', !!process.env.SMTP_PASSWORD);
-    console.log('- SMTP_SECURE exists:', !!process.env.SMTP_SECURE);
-    console.log('- FROM_EMAIL exists:', !!process.env.FROM_EMAIL);
+    const settingsLoaded = await this.loadSettings();
+    if (!settingsLoaded) {
+      console.log('❌ Failed to load email settings');
+      return;
+    }
+
+    // Environment variables check
+    console.log('🔍 SMTP configuration status:');
+    console.log('- HOST:', this.settings.smtp_host);
+    console.log('- PORT:', this.settings.smtp_port);
+    console.log('- USERNAME:', this.settings.smtp_username ? 'SET' : 'MISSING');
+    console.log('- PASSWORD:', this.settings.smtp_password ? 'SET' : 'MISSING');
+    console.log('- SECURE:', this.settings.smtp_secure);
 
     if (!this.settings.smtp_username || !this.settings.smtp_password) {
       console.log('⚠️ SMTP credentials not configured, skipping email setup');
-      console.log('Debug - smtp_username:', this.settings.smtp_username ? 'EXISTS' : 'MISSING');
-      console.log('Debug - smtp_password:', this.settings.smtp_password ? 'EXISTS' : 'MISSING');
-      console.log('Debug - Raw SMTP_USERNAME env:', process.env.SMTP_USERNAME ? 'EXISTS' : 'MISSING');
-      console.log('Debug - Raw SMTP_PASSWORD env:', process.env.SMTP_PASSWORD ? 'EXISTS' : 'MISSING');
       return;
     }
 
