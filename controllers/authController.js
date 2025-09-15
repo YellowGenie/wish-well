@@ -540,6 +540,14 @@ class AuthController {
         });
       }
 
+      // First show what configuration is being used
+      console.log('🔍 Testing email with configuration:');
+      console.log('- SMTP_HOST:', process.env.SMTP_HOST);
+      console.log('- SMTP_PORT:', process.env.SMTP_PORT);
+      console.log('- SMTP_USERNAME:', process.env.SMTP_USERNAME);
+      console.log('- SMTP_PASSWORD length:', process.env.SMTP_PASSWORD?.length || 0);
+      console.log('- SMTP_SECURE:', process.env.SMTP_SECURE);
+
       // Test the connection first
       const connectionTest = await emailService.testConnection();
       if (!connectionTest.success) {
