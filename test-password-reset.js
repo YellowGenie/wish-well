@@ -25,8 +25,8 @@ async function testPasswordResetFlow() {
       process.exit(1);
     }
 
-    // Test data
-    const testEmail = 'test@example.com'; // Change this to your email for testing
+    // Test data - CHANGE THIS TO A REAL EMAIL ADDRESS FOR TESTING
+    const testEmail = 'navan@yellowgenie.io'; // Change this to your real email for testing
     const testPassword = 'newpassword123';
 
     console.log('\n🔍 Testing password reset for email:', testEmail);

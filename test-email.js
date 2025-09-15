@@ -13,9 +13,9 @@ async function testEmail() {
     console.log('🔌 Connection test:', connectionTest);
 
     if (connectionTest.success) {
-      // Test sending a verification email
+      // Test sending a verification email - use a valid email address for testing
       const result = await emailService.sendVerificationEmail(
-        'test@example.com', // Replace with your email for testing
+        'hello@dozyr.co', // Using the same sender email for testing
         '1234',
         'Test User'
       );
