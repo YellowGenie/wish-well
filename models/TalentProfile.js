@@ -1,5 +1,9 @@
 const { mongoose } = require('../config/mongodb');
 
+// Import related models to ensure they're registered
+require('./TalentSkill');
+require('./Skill');
+
 // TalentProfile Schema
 const talentProfileSchema = new mongoose.Schema({
   user_id: {
@@ -36,6 +40,27 @@ const talentProfileSchema = new mongoose.Schema({
   profile_picture: {
     type: String,
     trim: true
+  },
+  is_featured: {
+    type: Boolean,
+    default: false
+  },
+  rating: {
+    type: Number,
+    min: 0,
+    max: 5,
+    default: 0
+  },
+  jobs_completed: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  success_rate: {
+    type: Number,
+    min: 0,
+    max: 100,
+    default: 0
   }
 }, {
   timestamps: {
@@ -93,17 +118,22 @@ talentProfileSchema.statics.removeSkill = async function(talent_id, skill_id) {
 };
 
 talentProfileSchema.statics.getSkills = async function(talent_id) {
-  const TalentSkill = mongoose.model('TalentSkill');
-  const skills = await TalentSkill.find({ talent_id })
-    .populate('skill_id', 'name category')
-    .sort({ 'skill_id.name': 1 });
-  
-  return skills.map(ts => ({
-    id: ts.skill_id._id,
-    name: ts.skill_id.name,
-    category: ts.skill_id.category,
-    proficiency: ts.proficiency
-  }));
+  try {
+    const TalentSkill = mongoose.model('TalentSkill');
+    const skills = await TalentSkill.find({ talent_id })
+      .populate('skill_id', 'name category')
+      .sort({ 'skill_id.name': 1 });
+
+    return skills.map(ts => ({
+      id: ts.skill_id._id,
+      name: ts.skill_id.name,
+      category: ts.skill_id.category,
+      proficiency: ts.proficiency
+    }));
+  } catch (error) {
+    console.error('Error getting skills for talent:', talent_id, error);
+    return []; // Return empty array if there's an error
+  }
 };
 
 talentProfileSchema.statics.searchTalents = async function({ skills, hourly_rate_min, hourly_rate_max, availability, location, page = 1, limit = 20 }) {
@@ -111,9 +141,30 @@ talentProfileSchema.statics.searchTalents = async function({ skills, hourly_rate
 
   let query = { };
 
-  // Build query conditions
+  // Build query conditions - only include active users (email verification optional for now)
   const User = mongoose.model('User');
-  const activeUserIds = await User.find({ is_active: true }).distinct('_id');
+  const activeUsers = await User.find({
+    is_active: true
+    // Removed email_verified requirement to show new talents immediately
+  });
+
+  console.log('🔍 SEARCH DEBUG - Active users found:', activeUsers.length);
+  console.log('🔍 SEARCH DEBUG - Active user emails:', activeUsers.map(u => u.email));
+
+  // Check specifically for the problematic user
+  const problemUser = await User.findByEmail('navan.sami@outlook.com');
+  if (problemUser) {
+    console.log('🔍 SEARCH DEBUG - Found navan.sami@outlook.com:', {
+      id: problemUser.id,
+      is_active: problemUser.is_active,
+      email_verified: problemUser.email_verified,
+      role: problemUser.role
+    });
+  } else {
+    console.log('🔍 SEARCH DEBUG - navan.sami@outlook.com NOT FOUND in User table');
+  }
+
+  const activeUserIds = activeUsers.map(u => u._id);
   query.user_id = { $in: activeUserIds };
 
   if (hourly_rate_min !== undefined) {
@@ -132,20 +183,58 @@ talentProfileSchema.statics.searchTalents = async function({ skills, hourly_rate
     query.location = new RegExp(location, 'i'); // Case-insensitive search
   }
 
+  console.log('🔍 SEARCH DEBUG - TalentProfile query:', query);
+
+  // Sort by featured first, then by creation date
   const talents = await this.find(query)
-    .populate('user_id', 'first_name last_name email')
-    .sort({ created_at: -1 })
+    .populate('user_id', 'first_name last_name email profile_image')
+    .sort({ is_featured: -1, created_at: -1 })
     .skip(skip)
     .limit(limit);
+
+  console.log('🔍 SEARCH DEBUG - TalentProfiles found:', talents.length);
+  console.log('🔍 SEARCH DEBUG - TalentProfile user emails:', talents.map(t => t.user_id?.email));
+
+  // Check if navan.sami@outlook.com has a TalentProfile
+  const allTalentProfiles = await this.find({}).populate('user_id');
+  const navanTalentProfile = allTalentProfiles.find(p => p.user_id?.email === 'navan.sami@outlook.com');
+
+  if (navanTalentProfile) {
+    console.log('🔍 SEARCH DEBUG - navan.sami@outlook.com TalentProfile exists:', {
+      id: navanTalentProfile._id,
+      user_email: navanTalentProfile.user_id?.email,
+      title: navanTalentProfile.title,
+      user_is_active: navanTalentProfile.user_id?.is_active
+    });
+  } else {
+    console.log('🔍 SEARCH DEBUG - navan.sami@outlook.com has NO TalentProfile');
+  }
 
   const total = await this.countDocuments(query);
 
   return {
     talents: talents.map(talent => ({
-      ...talent.toObject(),
-      first_name: talent.user_id.first_name,
-      last_name: talent.user_id.last_name,
-      email: talent.user_id.email
+      id: talent._id,
+      user_id: talent.user_id._id,
+      title: talent.title,
+      bio: talent.bio,
+      hourly_rate: talent.hourly_rate,
+      availability: talent.availability,
+      location: talent.location,
+      is_featured: talent.is_featured || false,
+      created_at: talent.created_at,
+      updated_at: talent.updated_at,
+      user: {
+        id: talent.user_id._id,
+        first_name: talent.user_id.first_name,
+        last_name: talent.user_id.last_name,
+        email: talent.user_id.email,
+        profile_image: talent.user_id.profile_image
+      },
+      // Real data from database - will be 0/null if not set
+      rating: talent.rating || 0,
+      jobs_completed: talent.jobs_completed || 0,
+      success_rate: talent.success_rate || 0
     })),
     total,
     page,
@@ -218,14 +307,12 @@ talentProfileSchema.statics.getDashboardStats = async function(talent_id) {
     const recommended_jobs = openJobs.map(job => ({
       id: job._id.toString(),
       title: job.title,
-      company_name: job.manager_id?.user_id ?
-        `${job.manager_id.user_id.first_name} ${job.manager_id.user_id.last_name}` :
-        'Unknown Company',
-      location: 'Remote', // Default since location isn't in job schema
+      company_name: job.manager_id?.company_name ||
+        (job.manager_id?.user_id ? `${job.manager_id.user_id.first_name} ${job.manager_id.user_id.last_name}` : 'Company Name Not Set'),
+      location: job.manager_id?.location || 'Location Not Set',
       salary_range: job.budget_type === 'fixed' ?
         `$${job.budget_min || 0} - $${job.budget_max || 0}` :
         `$${job.budget_min || 0}/hr - $${job.budget_max || 0}/hr`,
-      match_score: Math.floor(Math.random() * 20) + 80, // Random match score for now
       posted_at: this.getRelativeTime(job.created_at)
     }));
 

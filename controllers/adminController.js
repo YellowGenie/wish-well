@@ -2613,6 +2613,171 @@ class AdminController {
       res.status(500).json({ error: 'Internal server error' });
     }
   }
+
+  // Talent Profile Management
+  static async getAllTalentProfiles(req, res) {
+    try {
+      const TalentProfile = require('../models/TalentProfile');
+      const { page = 1, limit = 50 } = req.query;
+
+      const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 100);
+      const parsedPage = Math.max(parseInt(page) || 1, 1);
+      const skip = (parsedPage - 1) * parsedLimit;
+
+      const profiles = await TalentProfile.find()
+        .populate('user_id', 'first_name last_name email is_active email_verified')
+        .sort({ created_at: -1 })
+        .skip(skip)
+        .limit(parsedLimit);
+
+      const total = await TalentProfile.countDocuments();
+
+      const profilesWithUserData = profiles.map(profile => ({
+        id: profile._id,
+        user_id: profile.user_id._id,
+        title: profile.title,
+        bio: profile.bio,
+        hourly_rate: profile.hourly_rate,
+        location: profile.location,
+        is_featured: profile.is_featured || false,
+        created_at: profile.created_at,
+        updated_at: profile.updated_at,
+        user: {
+          id: profile.user_id._id,
+          first_name: profile.user_id.first_name,
+          last_name: profile.user_id.last_name,
+          email: profile.user_id.email,
+          is_active: profile.user_id.is_active,
+          email_verified: profile.user_id.email_verified
+        }
+      }));
+
+      res.json({
+        profiles: profilesWithUserData,
+        total,
+        page: parsedPage,
+        totalPages: Math.ceil(total / parsedLimit)
+      });
+    } catch (error) {
+      console.error('Get all talent profiles error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async updateTalentFeatured(req, res) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id } = req.params;
+      const { is_featured } = req.body;
+
+      const TalentProfile = require('../models/TalentProfile');
+
+      const result = await TalentProfile.updateOne(
+        { _id: id },
+        { $set: { is_featured } }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ error: 'Talent profile not found' });
+      }
+
+      res.json({
+        message: `Talent profile ${is_featured ? 'featured' : 'unfeatured'} successfully`,
+        profile_id: id,
+        is_featured
+      });
+    } catch (error) {
+      console.error('Update talent featured error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async createMissingTalentProfile(req, res) {
+    try {
+      const { user_id } = req.params;
+      console.log('Admin creating missing TalentProfile for user_id:', user_id);
+
+      const User = require('../models/User');
+      const TalentProfile = require('../models/TalentProfile');
+
+      // Validate user exists and is a talent
+      const user = await User.findById(user_id);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      if (user.role !== 'talent') {
+        return res.status(400).json({ error: 'User is not a talent' });
+      }
+
+      // Check if TalentProfile already exists
+      const existingProfile = await TalentProfile.findOne({ user_id });
+      if (existingProfile) {
+        return res.json({
+          message: 'TalentProfile already exists',
+          profile_id: existingProfile._id,
+          user_email: user.email
+        });
+      }
+
+      // Create the missing TalentProfile
+      const profileId = await TalentProfile.create({
+        user_id,
+        title: '',
+        bio: '',
+        hourly_rate: null,
+        availability: 'contract',
+        location: '',
+        portfolio_description: ''
+      });
+
+      res.json({
+        message: 'TalentProfile created successfully by admin',
+        profile_id: profileId,
+        user_email: user.email,
+        user_name: `${user.first_name} ${user.last_name}`
+      });
+    } catch (error) {
+      console.error('Admin create missing TalentProfile error:', error);
+      res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+  }
+
+  static async getUsersWithoutTalentProfile(req, res) {
+    try {
+      const User = require('../models/User');
+      const TalentProfile = require('../models/TalentProfile');
+
+      // Find all talent users
+      const talentUsers = await User.find({ role: 'talent' }, 'first_name last_name email is_active');
+
+      // Find all existing talent profiles
+      const existingProfiles = await TalentProfile.find({}, 'user_id');
+      const existingUserIds = existingProfiles.map(p => p.user_id.toString());
+
+      // Filter users without profiles
+      const usersWithoutProfiles = talentUsers.filter(user =>
+        !existingUserIds.includes(user._id.toString())
+      );
+
+      res.json({
+        users_without_profiles: usersWithoutProfiles.map(user => ({
+          id: user._id,
+          name: `${user.first_name} ${user.last_name}`,
+          email: user.email,
+          is_active: user.is_active
+        })),
+        total: usersWithoutProfiles.length
+      });
+    } catch (error) {
+      console.error('Get users without talent profile error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
 }
 
 module.exports = AdminController;

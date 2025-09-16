@@ -16,15 +16,36 @@ const checkStripe = (req, res, next) => {
   next();
 };
 
-// Apply Stripe check to all payment routes that need it
-router.use(['/create-payment-intent', '/confirm-payment', '/cards', '/webhook'], checkStripe);
+// Apply Stripe check to payment routes that need it (excluding create-payment-intent for free posting)
+router.use(['/confirm-payment', '/cards', '/webhook'], checkStripe);
 
 // Create payment intent for job posting
 router.post('/create-payment-intent', auth, async (req, res) => {
   try {
     const { job_id, description = 'Job posting fee' } = req.body;
     const user_id = req.user.id;
-    const amount = 1; // $0.01 in cents
+
+    // Check if packages are configured, if not, make posting free
+    const PackageController = require('../controllers/packageController');
+    let amount = 0; // Default to free
+
+    try {
+      // TODO: When package system is implemented, get pricing from packages
+      // For now, we'll make job posting free
+      amount = 0; // Free posting until package system is implemented
+    } catch (packageError) {
+      console.log('Package system not available, making job posting free');
+      amount = 0;
+    }
+
+    // If amount is 0, return success without creating Stripe payment
+    if (amount === 0) {
+      return res.json({
+        success: true,
+        free_posting: true,
+        message: 'Job posting is currently free'
+      });
+    }
     
     // Create or get Stripe customer
     let customer;

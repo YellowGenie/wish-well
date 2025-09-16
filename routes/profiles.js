@@ -8,6 +8,15 @@ const router = express.Router();
 router.get('/talents/search', ProfileController.searchTalents);
 router.get('/talents/:id', ProfileController.getTalentProfile);
 
+// DEBUG: Temporary diagnostic endpoint
+router.get('/debug/user/:email', ProfileController.debugUser);
+
+// FIX: Create missing TalentProfile (POST)
+router.post('/fix/talent-profile/:email', ProfileController.createMissingTalentProfile);
+
+// FIX: Create missing TalentProfile (GET - for browser)
+router.get('/fix/talent-profile/:email', ProfileController.createMissingTalentProfile);
+
 // Public manager profile routes  
 router.get('/managers/:id', ProfileController.getManagerProfile);
 

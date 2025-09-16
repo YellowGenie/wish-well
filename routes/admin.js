@@ -113,6 +113,16 @@ router.post('/discounts/assign', [
   body('discount_id').isInt()
 ], AdminController.assignDiscountToUser);
 
+// Talent Profile Management
+router.get('/talent-profiles', AdminController.getAllTalentProfiles);
+router.put('/talent-profiles/:id/featured', [
+  body('is_featured').isBoolean()
+], AdminController.updateTalentFeatured);
+
+// Fix Missing Talent Profiles
+router.get('/users/missing-talent-profiles', AdminController.getUsersWithoutTalentProfile);
+router.post('/users/:user_id/create-talent-profile', AdminController.createMissingTalentProfile);
+
 // Admin Activity Logs
 router.get('/logs', AdminController.getAdminLogs);
 

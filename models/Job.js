@@ -105,7 +105,8 @@ jobSchema.statics.create = async function({ manager_id, title, description, budg
       for (const skillName of skills) {
         if (!skillName || skillName.trim() === '') continue;
         
-        let skill = await Skill.findOne({ name: { $regex: new RegExp(skillName.trim(), 'i') } }).session(session);
+        // Use case-insensitive exact match instead of regex to avoid special character issues
+        let skill = await Skill.findOne({ name: skillName.trim() }).collation({ locale: 'en', strength: 2 }).session(session);
         
         if (!skill) {
           skill = await Skill.create([{ name: skillName.trim() }], { session });
@@ -129,8 +130,14 @@ jobSchema.statics.create = async function({ manager_id, title, description, budg
 
 jobSchema.statics.findById = async function(id) {
   return await this.findOne({ _id: id })
-    .populate('manager_id')
-    .populate('skills.skill_id');
+    .populate({
+      path: 'manager_id',
+      populate: {
+        path: 'user_id',
+        select: 'first_name last_name email'
+      }
+    })
+    .populate('skills.skill_id', 'name');
 };
 
 jobSchema.statics.updateJob = async function(id, updates) {
@@ -211,16 +218,45 @@ jobSchema.statics.getAllJobsPaginated = async function({
     let query = { status: 'open' };
 
     let jobs = await this.find(query)
-      .populate('manager_id')
-      .populate('skills.skill_id')
+      .populate({
+        path: 'manager_id',
+        populate: {
+          path: 'user_id',
+          select: 'first_name last_name email'
+        }
+      })
+      .populate('skills.skill_id', 'name')
       .sort({ [sort_by]: sort_order.toLowerCase() === 'asc' ? 1 : -1 })
       .skip(skip)
       .limit(limit);
 
     const total = await this.countDocuments(query);
 
+    // Format jobs for frontend
+    const formattedJobs = jobs.map(job => ({
+      id: job._id.toString(),
+      title: job.title,
+      description: job.description,
+      budget_type: job.budget_type,
+      budget_min: job.budget_min,
+      budget_max: job.budget_max,
+      currency: job.currency,
+      category: job.category,
+      status: job.status || 'open',
+      experience_level: job.experience_level,
+      created_at: job.created_at,
+      updated_at: job.updated_at,
+      location: job.location || 'Remote',
+      skills: job.skills?.map(s => s.skill_id?.name).filter(Boolean) || [],
+      company_name: job.manager_id?.company_name ||
+        (job.manager_id?.user_id ? `${job.manager_id.user_id.first_name} ${job.manager_id.user_id.last_name}` : 'Company Name Not Set'),
+      applicant_count: 0, // TODO: Get real count from proposals
+      featured: job.featured || false,
+      job_type: job.budget_type === 'hourly' ? 'freelance' : 'contract' // Map to frontend expected values
+    }));
+
     return {
-      jobs,
+      jobs: formattedJobs,
       total,
       page,
       totalPages: Math.ceil(total / limit),
@@ -229,6 +265,54 @@ jobSchema.statics.getAllJobsPaginated = async function({
     };
   } catch (error) {
     console.error('Error fetching jobs:', error);
+    throw error;
+  }
+};
+
+jobSchema.statics.getJobsByManager = async function(manager_id, page = 1, limit = 20) {
+  try {
+    const skip = (page - 1) * limit;
+
+    // Get jobs for this manager
+    const jobs = await this.find({ manager_id })
+      .populate('manager_id')
+      .populate('skills.skill_id', 'name')
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await this.countDocuments({ manager_id });
+
+    // Format jobs for frontend
+    const formattedJobs = jobs.map(job => ({
+      id: job._id.toString(),
+      title: job.title,
+      description: job.description,
+      budget_type: job.budget_type,
+      budget_min: job.budget_min,
+      budget_max: job.budget_max,
+      currency: job.currency,
+      category: job.category,
+      status: job.status || 'open',
+      experience_level: job.experience_level,
+      created_at: job.created_at,
+      updated_at: job.updated_at,
+      skills: job.skills?.map(s => s.skill_id?.name).filter(Boolean) || [],
+      applications_count: 0, // TODO: Get real count from proposals
+      new_proposals_count: 0 // TODO: Get real count from unread proposals
+    }));
+
+    return {
+      jobs: formattedJobs,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      hasNextPage: page < Math.ceil(total / limit),
+      hasPrevPage: page > 1
+    };
+  } catch (error) {
+    console.error('Error fetching jobs by manager:', error);
     throw error;
   }
 };

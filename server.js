@@ -328,6 +328,27 @@ const startServer = async () => {
     console.log('⚠️ Server will continue without email functionality');
   }
 
+  // Initialize all models to ensure they're registered
+  try {
+    require('./models/User');
+    require('./models/TalentProfile');
+    require('./models/ManagerProfile');
+    require('./models/Skill');
+    require('./models/TalentSkill');
+    require('./models/Job');
+    require('./models/Proposal');
+    require('./models/Message');
+    require('./models/DeletedUser');
+    require('./models/Notification');
+    require('./models/Conversation');
+    require('./models/Contract');
+    require('./models/EmailVerification');
+    require('./models/PasswordReset');
+    console.log('✅ All models initialized successfully');
+  } catch (error) {
+    console.error('❌ Model initialization failed:', error);
+  }
+
   // Start server immediately
   server.listen(PORT, () => {
     console.log(`🚀 Wishing Well API server running on port ${PORT}`);

@@ -349,12 +349,40 @@ class JobController {
     try {
       const { id } = req.params;
       const job = await Job.findById(id);
-      
+
       if (!job) {
         return res.status(404).json({ error: 'Job not found' });
       }
 
-      res.json({ job });
+      // Format job data with company information
+      const formattedJob = {
+        id: job._id.toString(),
+        title: job.title,
+        description: job.description,
+        budget_type: job.budget_type,
+        budget_min: job.budget_min,
+        budget_max: job.budget_max,
+        currency: job.currency,
+        category: job.category,
+        status: job.status || 'open',
+        experience_level: job.experience_level,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+        skills: job.skills?.map(s => s.skill_id?.name).filter(Boolean) || [],
+        // Company information from manager profile
+        company_name: job.manager_id?.company_name || 'Company Name Not Set',
+        location: job.manager_id?.location || 'Location Not Set',
+        company_description: job.manager_id?.company_description || '',
+        company_size: job.manager_id?.company_size || null,
+        industry: job.manager_id?.industry || '',
+        // Manager info for fallback
+        manager: {
+          first_name: job.manager_id?.user_id?.first_name || '',
+          last_name: job.manager_id?.user_id?.last_name || ''
+        }
+      };
+
+      res.json({ job: formattedJob });
     } catch (error) {
       console.error('Get job error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -680,6 +708,42 @@ class JobController {
       res.json({ message: 'Skill removed from job successfully' });
     } catch (error) {
       console.error('Remove skill from job error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async getAllJobs(req, res) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { page = 1, limit = 20, sort_by = 'created_at', sort_order = 'DESC' } = req.query;
+
+      const result = await Job.getAllJobsPaginated({
+        page: parseInt(page),
+        limit: parseInt(limit),
+        sort_by,
+        sort_order
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error('Get all jobs error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async getFeaturedJobs(req, res) {
+    try {
+      const { limit = 10 } = req.query;
+
+      const jobs = await Job.getFeaturedJobs(parseInt(limit));
+
+      res.json({ jobs });
+    } catch (error) {
+      console.error('Get featured jobs error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

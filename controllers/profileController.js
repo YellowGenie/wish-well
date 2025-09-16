@@ -2,6 +2,7 @@ const { body, validationResult } = require('express-validator');
 const TalentProfile = require('../models/TalentProfile');
 const ManagerProfile = require('../models/ManagerProfile');
 const Skill = require('../models/Skill');
+const TalentSkill = require('../models/TalentSkill');
 
 class ProfileController {
   // Talent Profile Controllers
@@ -16,18 +17,56 @@ class ProfileController {
 
   static async getTalentProfile(req, res) {
     try {
-      const { id } = req.params;
-      const profile = await TalentProfile.findById(id);
-      
+      const { id } = req.params; // This is the user_id
+
+      // Find talent profile by user_id and populate user data
+      const profile = await TalentProfile.findOne({ user_id: id })
+        .populate('user_id', 'first_name last_name email profile_image is_active email_verified');
+
       if (!profile) {
         return res.status(404).json({ error: 'Talent profile not found' });
       }
 
-      // Get skills
-      const skills = await TalentProfile.getSkills(profile.id);
+      // Get skills for this talent profile
+      const skills = await TalentProfile.getSkills(profile._id);
 
-      res.json({ 
-        profile: { ...profile, skills }
+      // Format the response to match frontend expectations
+      const formattedProfile = {
+        id: profile._id,
+        user_id: profile.user_id._id,
+        first_name: profile.user_id.first_name,
+        last_name: profile.user_id.last_name,
+        email: profile.user_id.email,
+        profile_image: profile.user_id.profile_image,
+        title: profile.title,
+        bio: profile.bio,
+        hourly_rate: profile.hourly_rate,
+        location: profile.location,
+        availability: profile.availability,
+        portfolio_description: profile.portfolio_description,
+        is_featured: profile.is_featured || false,
+        rating: profile.rating || 0,
+        jobs_completed: profile.jobs_completed || 0,
+        success_rate: profile.success_rate || 0,
+        skills: skills,
+        created_at: profile.created_at,
+        updated_at: profile.updated_at,
+        // Add empty arrays for optional fields that might be expected
+        languages: [],
+        certifications: [],
+        education: null,
+        portfolio: [],
+        profile_visibility: {
+          is_public: true,
+          show_contact: true,
+          show_hourly_rate: true,
+          show_portfolio: true,
+          show_testimonials: true
+        }
+      };
+
+      res.json({
+        profile: formattedProfile
       });
     } catch (error) {
       console.error('Get talent profile error:', error);
@@ -62,13 +101,65 @@ class ProfileController {
         return res.status(400).json({ errors: errors.array() });
       }
 
+      // Try to update, if no profile exists, create one
       const updated = await TalentProfile.update(req.user.id, req.body);
-      
+
       if (!updated) {
-        return res.status(400).json({ error: 'No changes made or profile not found' });
+        // Profile doesn't exist, create it
+        console.log('Creating new talent profile for user:', req.user.id);
+        const profileId = await TalentProfile.create({
+          user_id: req.user.id,
+          ...req.body
+        });
+        console.log('Created talent profile with ID:', profileId);
       }
 
-      res.json({ message: 'Talent profile updated successfully' });
+      // Return the updated/created profile in the format expected by frontend
+      const profile = await TalentProfile.findByUserId(req.user.id);
+
+      if (!profile) {
+        return res.status(404).json({ error: 'Profile not found after update/create' });
+      }
+
+      // Get skills for this talent profile
+      const skills = await TalentProfile.getSkills(profile._id);
+
+      // Format the response to match frontend expectations (like getTalentProfile)
+      const formattedProfile = {
+        id: profile._id,
+        user_id: profile.user_id._id,
+        first_name: profile.user_id.first_name,
+        last_name: profile.user_id.last_name,
+        email: profile.user_id.email,
+        profile_image: profile.user_id.profile_image,
+        title: profile.title,
+        bio: profile.bio,
+        hourly_rate: profile.hourly_rate,
+        location: profile.location,
+        availability: profile.availability,
+        portfolio_description: profile.portfolio_description,
+        is_featured: profile.is_featured || false,
+        rating: profile.rating || 0,
+        jobs_completed: profile.jobs_completed || 0,
+        success_rate: profile.success_rate || 0,
+        skills: skills,
+        created_at: profile.created_at,
+        updated_at: profile.updated_at,
+        // Add empty arrays for optional fields that might be expected
+        languages: [],
+        certifications: [],
+        education: null,
+        portfolio: [],
+        profile_visibility: {
+          is_public: true,
+          show_contact: true,
+          show_hourly_rate: true,
+          show_portfolio: true,
+          show_testimonials: true
+        }
+      };
+
+      res.json(formattedProfile);
     } catch (error) {
       console.error('Update talent profile error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -160,15 +251,132 @@ class ProfileController {
 
       const result = await TalentProfile.searchTalents(searchParams);
 
-      // Get skills for each talent
+      // Get skills for each talent from database only
       for (let talent of result.talents) {
-        talent.skills = await TalentProfile.getSkills(talent.id);
+        try {
+          talent.skills = await TalentProfile.getSkills(talent.id);
+        } catch (error) {
+          console.error('Error loading skills for talent:', talent.id, error);
+          talent.skills = []; // Fallback to empty array if error
+        }
       }
 
       res.json(result);
     } catch (error) {
       console.error('Search talents error:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Create missing TalentProfile for existing user
+  static async createMissingTalentProfile(req, res) {
+    try {
+      const { email } = req.params;
+      console.log('Creating missing TalentProfile for:', email);
+
+      const User = require('../models/User');
+      const user = await User.findByEmail(email);
+
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      if (user.role !== 'talent') {
+        return res.status(400).json({ error: 'User is not a talent' });
+      }
+
+      // Check if TalentProfile already exists
+      const existingProfile = await TalentProfile.findOne({ user_id: user.id });
+      if (existingProfile) {
+        return res.json({ message: 'TalentProfile already exists', profile_id: existingProfile._id });
+      }
+
+      // Create the missing TalentProfile
+      const newProfile = await TalentProfile.create({
+        user_id: user.id,
+        title: '',
+        bio: '',
+        hourly_rate: null,
+        availability: 'contract',
+        location: '',
+        portfolio_description: ''
+      });
+
+      res.json({
+        message: 'TalentProfile created successfully',
+        profile_id: newProfile._id,
+        user_email: email
+      });
+    } catch (error) {
+      console.error('Create missing TalentProfile error:', error);
+      res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+  }
+
+  // DEBUG: Temporary diagnostic method
+  static async debugUser(req, res) {
+    try {
+      const { email } = req.params;
+      console.log('Debugging user:', email);
+
+      const User = require('../models/User');
+
+      // Check if user exists
+      const user = await User.findByEmail(email);
+      if (!user) {
+        return res.json({
+          error: 'User not found',
+          email: email
+        });
+      }
+
+      // Check for TalentProfile
+      const talentProfile = await TalentProfile.findOne({ user_id: user.id });
+
+      // Check search criteria
+      const searchCriteria = {
+        is_active: user.is_active,
+        email_verified: user.email_verified,
+        role: user.role,
+        has_talent_profile: !!talentProfile
+      };
+
+      // Test if user would be included in search
+      const activeUserIds = await User.find({
+        is_active: true
+      }).distinct('_id');
+
+      const wouldBeIncluded = activeUserIds.some(id => id.toString() === user.id.toString());
+
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          role: user.role,
+          is_active: user.is_active,
+          email_verified: user.email_verified,
+          created_at: user.created_at
+        },
+        talentProfile: talentProfile ? {
+          id: talentProfile._id,
+          title: talentProfile.title,
+          bio: talentProfile.bio,
+          hourly_rate: talentProfile.hourly_rate,
+          location: talentProfile.location,
+          availability: talentProfile.availability
+        } : null,
+        searchCriteria,
+        wouldBeIncluded,
+        debug: {
+          totalActiveUsers: activeUserIds.length,
+          userIdMatch: activeUserIds.find(id => id.toString() === user.id.toString())
+        }
+      });
+    } catch (error) {
+      console.error('Debug user error:', error);
+      res.status(500).json({ error: 'Internal server error', details: error.message });
     }
   }
 
