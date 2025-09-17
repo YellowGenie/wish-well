@@ -344,6 +344,13 @@ const startServer = async () => {
     require('./models/Contract');
     require('./models/EmailVerification');
     require('./models/PasswordReset');
+    // Payment system models
+    require('./models/Payment');
+    require('./models/PaymentPackage');
+    require('./models/PaymentSettings');
+    require('./models/TransactionLog');
+    require('./models/CommissionSettings');
+    require('./models/EscrowAccount');
     console.log('✅ All models initialized successfully');
   } catch (error) {
     console.error('❌ Model initialization failed:', error);
