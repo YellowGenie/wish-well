@@ -111,8 +111,29 @@ class AdminPaymentController {
         return res.status(400).json({ errors: errors.array() });
       }
 
+      // Create default features based on package type
+      const defaultFeatures = [
+        {
+          feature_key: 'job_posts',
+          feature_name: 'Job Posts',
+          feature_value: req.body.job_posts || 1,
+          feature_description: `${req.body.job_posts || 1} job posting${(req.body.job_posts || 1) > 1 ? 's' : ''} included`
+        }
+      ];
+
+      // Add featured listings if specified
+      if (req.body.featured_posts && req.body.featured_posts > 0) {
+        defaultFeatures.push({
+          feature_key: 'featured_listings',
+          feature_name: 'Featured Listings',
+          feature_value: req.body.featured_posts,
+          feature_description: `${req.body.featured_posts} featured listing${req.body.featured_posts > 1 ? 's' : ''} included`
+        });
+      }
+
       const packageData = {
         ...req.body,
+        features: req.body.features || defaultFeatures,
         metadata: {
           ...req.body.metadata,
           created_by: req.user.id

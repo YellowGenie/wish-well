@@ -1,19 +1,43 @@
 const { body, validationResult } = require('express-validator');
-// MongoDB connection handled through models  
+// MongoDB connection handled through models
 const stripe = require('../config/stripe');
 const ManagerProfile = require('../models/ManagerProfile');
-
-// Package Controller - MongoDB compatible version
-// TODO: Implement proper package/discount system with MongoDB models
+const PaymentPackage = require('../models/PaymentPackage');
+const User = require('../models/User');
 
 class PackageController {
   // Get all available packages
   static async getPackages(req, res) {
     try {
+      const packages = await PaymentPackage.find({
+        'availability.is_active': true
+      }).sort({ 'pricing.base_price': 1 });
+
+      // Transform packages to match the frontend interface
+      const transformedPackages = packages.map(pkg => {
+        // Extract credits from features
+        const jobPostsFeature = pkg.features.find(f => f.feature_key === 'job_posts');
+        const featuredFeature = pkg.features.find(f => f.feature_key === 'featured_listings');
+
+        return {
+          id: pkg._id,
+          name: pkg.name,
+          description: pkg.description,
+          price: pkg.pricing.base_price / 100, // Convert from cents to dollars
+          post_credits: jobPostsFeature ? jobPostsFeature.feature_value : 0,
+          featured_credits: featuredFeature ? featuredFeature.feature_value : 0,
+          duration_days: 30, // Default duration
+          features: pkg.features.map(f => f.feature_description),
+          is_popular: pkg.tags && pkg.tags.includes('popular'),
+          is_active: pkg.availability.is_active,
+          currency: pkg.pricing.currency,
+          billing_cycle: pkg.pricing.billing_cycle
+        };
+      });
+
       res.json({
         success: true,
-        packages: [],
-        message: "Package system is not yet implemented with MongoDB"
+        packages: transformedPackages
       });
     } catch (error) {
       console.error('Get packages error:', error);
