@@ -2632,7 +2632,7 @@ class AdminController {
 
       const total = await TalentProfile.countDocuments();
 
-      const profilesWithUserData = profiles.map(profile => ({
+      const profilesWithUserData = profiles.filter(profile => profile.user_id).map(profile => ({
         id: profile._id,
         user_id: profile.user_id._id,
         title: profile.title,

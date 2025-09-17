@@ -48,6 +48,7 @@ class ProfileController {
         rating: profile.rating || 0,
         jobs_completed: profile.jobs_completed || 0,
         success_rate: profile.success_rate || 0,
+        view_count: profile.view_count || 0,
         skills: skills,
         created_at: profile.created_at,
         updated_at: profile.updated_at,
@@ -142,6 +143,7 @@ class ProfileController {
         rating: profile.rating || 0,
         jobs_completed: profile.jobs_completed || 0,
         success_rate: profile.success_rate || 0,
+        view_count: profile.view_count || 0,
         skills: skills,
         created_at: profile.created_at,
         updated_at: profile.updated_at,
@@ -493,6 +495,24 @@ class ProfileController {
       res.json(result);
     } catch (error) {
       console.error('Get manager jobs error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async incrementTalentProfileView(req, res) {
+    try {
+      const { id } = req.params; // This is the user_id
+
+      // Increment the view count for the talent profile
+      const updated = await TalentProfile.incrementViewCount(id);
+
+      if (!updated) {
+        return res.status(404).json({ error: 'Talent profile not found' });
+      }
+
+      res.json({ success: true, message: 'Profile view count incremented' });
+    } catch (error) {
+      console.error('Increment talent profile view error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

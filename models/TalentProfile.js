@@ -61,6 +61,11 @@ const talentProfileSchema = new mongoose.Schema({
     min: 0,
     max: 100,
     default: 0
+  },
+  view_count: {
+    type: Number,
+    min: 0,
+    default: 0
   }
 }, {
   timestamps: {
@@ -330,6 +335,15 @@ talentProfileSchema.statics.getDashboardStats = async function(talent_id) {
     console.error('Error getting talent dashboard stats:', error);
     throw error;
   }
+};
+
+// Method to increment view count
+talentProfileSchema.statics.incrementViewCount = async function(user_id) {
+  const result = await this.updateOne(
+    { user_id },
+    { $inc: { view_count: 1 } }
+  );
+  return result.modifiedCount > 0;
 };
 
 // Helper method for relative time

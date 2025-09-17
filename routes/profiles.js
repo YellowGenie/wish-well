@@ -7,6 +7,7 @@ const router = express.Router();
 // Public talent profile routes
 router.get('/talents/search', ProfileController.searchTalents);
 router.get('/talents/:id', ProfileController.getTalentProfile);
+router.post('/talents/:id/view', ProfileController.incrementTalentProfileView);
 
 // DEBUG: Temporary diagnostic endpoint
 router.get('/debug/user/:email', ProfileController.debugUser);

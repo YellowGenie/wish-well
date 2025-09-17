@@ -18,6 +18,8 @@ router.get('/geography', AdminController.getGeographyStats);
 
 // Enhanced User Management
 router.get('/users', AdminController.getAllUsers);
+// Fix Missing Talent Profiles - MUST come before /users/:id
+router.get('/users/missing-talent-profiles', AdminController.getUsersWithoutTalentProfile);
 router.get('/users/:id', AdminController.getUserDetails);
 router.post('/users', [
   body('email').isEmail().normalizeEmail(),
@@ -119,8 +121,7 @@ router.put('/talent-profiles/:id/featured', [
   body('is_featured').isBoolean()
 ], AdminController.updateTalentFeatured);
 
-// Fix Missing Talent Profiles
-router.get('/users/missing-talent-profiles', AdminController.getUsersWithoutTalentProfile);
+// Fix Missing Talent Profiles - Create missing profile route
 router.post('/users/:user_id/create-talent-profile', AdminController.createMissingTalentProfile);
 
 // Admin Activity Logs
