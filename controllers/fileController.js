@@ -5,6 +5,7 @@ const filestoreService = require('../services/filestoreService');
 const { validateFileType, scanFileForMalware } = require('../utils/fileHelpers');
 const TalentProfile = require('../models/TalentProfile');
 const ManagerProfile = require('../models/ManagerProfile');
+const axios = require('axios');
 
 // Configure multer for temporary local storage
 const storage = multer.diskStorage({
@@ -294,6 +295,75 @@ class FileController {
     } catch (error) {
       console.error('Delete file error:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Image proxy for development - serves images from cPanel hosting
+  static async imageProxy(req, res) {
+    try {
+      // Extract the file path from the URL params
+      const filePath = req.params[0]; // This captures everything after /image-proxy/
+
+      if (!filePath) {
+        return res.status(400).json({ error: 'File path is required' });
+      }
+
+      console.log('Proxying image request for:', filePath);
+
+      // Construct the full filestore URL
+      const imageUrl = `https://filestore.dozyr.co/${filePath}`;
+
+      console.log('Fetching from filestore:', imageUrl);
+
+      // Fetch the image from cPanel hosting with proper headers
+      const response = await axios({
+        method: 'GET',
+        url: imageUrl,
+        headers: {
+          'X-API-Key': 'dozyr_filestore_2024_main_api_key_secure_token_xyz789',
+          'User-Agent': 'Dozyr-Backend-Proxy/1.0'
+        },
+        responseType: 'arraybuffer',
+        timeout: 10000 // 10 second timeout
+      });
+
+      // Get the image buffer
+      const imageBuffer = Buffer.from(response.data);
+      const contentType = response.headers['content-type'] || 'image/jpeg';
+
+      console.log(`Successfully proxied image: ${filePath}, size: ${imageBuffer.length} bytes, type: ${contentType}`);
+
+      // Set appropriate headers
+      res.set({
+        'Content-Type': contentType,
+        'Content-Length': imageBuffer.length,
+        'Cache-Control': 'public, max-age=3600', // Cache for 1 hour
+        'Access-Control-Allow-Origin': '*', // Allow CORS for development
+      });
+
+      // Send the image
+      res.send(imageBuffer);
+
+    } catch (error) {
+      console.error('Image proxy error:', error);
+
+      // Handle axios errors
+      if (error.response) {
+        // The request was made and the server responded with a status code outside of 2xx
+        console.error(`Filestore returned ${error.response.status}: ${error.response.statusText}`);
+        return res.status(error.response.status).json({
+          error: `Failed to fetch image: ${error.response.status} ${error.response.statusText}`
+        });
+      } else if (error.request) {
+        // The request was made but no response was received
+        console.error('No response received from filestore:', error.message);
+        return res.status(503).json({ error: 'Filestore service unavailable' });
+      } else if (error.code === 'ECONNABORTED') {
+        // Request timeout
+        return res.status(504).json({ error: 'Request timeout' });
+      }
+
+      res.status(500).json({ error: 'Proxy server error' });
     }
   }
 

@@ -4,7 +4,10 @@ const router = express.Router();
 const FileController = require('../controllers/fileController');
 const { auth } = require('../middleware/auth');
 
-// All file routes require authentication
+// Image proxy route (no auth required for development)
+router.get('/image-proxy/*', FileController.imageProxy);
+
+// All other file routes require authentication
 router.use(auth);
 
 // Upload routes
