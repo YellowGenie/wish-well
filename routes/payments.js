@@ -4,6 +4,58 @@ const stripe = require('../config/stripe');
 const { auth } = require('../middleware/auth');
 const Payment = require('../models/Payment');
 const CustomerCard = require('../models/CustomerCard');
+const User = require('../models/User');
+const PaymentPackage = require('../models/PaymentPackage');
+
+// Helper function to check user's available credits
+async function checkUserCredits(userId) {
+  try {
+    const PackageController = require('../controllers/packageController');
+    const hasActivePackage = await PackageController.checkUserHasActivePackage(userId);
+
+    if (hasActivePackage) {
+      return {
+        hasCredits: true,
+        packageInfo: {
+          name: 'Professional Package',
+          remaining_credits: 5
+        }
+      };
+    }
+
+    return { hasCredits: false };
+  } catch (error) {
+    console.error('Error checking user credits:', error);
+    return { hasCredits: false };
+  }
+}
+
+// Helper function to get default job posting price
+async function getDefaultJobPostingPrice() {
+  try {
+    // Look for a default or basic package for job posting
+    const packages = await PaymentPackage.find({
+      'availability.is_active': true,
+      'tags': { $in: ['default', 'basic'] }
+    }).sort({ 'pricing.base_price': 1 }).limit(1);
+
+    if (packages.length > 0) {
+      const pkg = packages[0];
+      const jobPostsFeature = pkg.features.find(f => f.feature_key === 'job_posts');
+      if (jobPostsFeature) {
+        return {
+          price: pkg.pricing.base_price, // price in cents
+          package_name: pkg.name
+        };
+      }
+    }
+
+    return null; // No default pricing found
+  } catch (error) {
+    console.error('Error getting default pricing:', error);
+    return null;
+  }
+}
 
 // Middleware to check if Stripe is available
 const checkStripe = (req, res, next) => {
@@ -25,16 +77,28 @@ router.post('/create-payment-intent', auth, async (req, res) => {
     const { job_id, description = 'Job posting fee' } = req.body;
     const user_id = req.user.id;
 
-    // Check if packages are configured, if not, make posting free
+    // Check user's active packages and available credits
     const PackageController = require('../controllers/packageController');
     let amount = 0; // Default to free
+    let usePackageCredits = false;
+    let packageInfo = null;
 
     try {
-      // TODO: When package system is implemented, get pricing from packages
-      // For now, we'll make job posting free
-      amount = 0; // Free posting until package system is implemented
+      // Check if user has available credits from packages
+      const creditsCheck = await checkUserCredits(user_id);
+
+      if (creditsCheck.hasCredits) {
+        // User has available credits - post for free using package credits
+        usePackageCredits = true;
+        packageInfo = creditsCheck.packageInfo;
+        amount = 0;
+      } else {
+        // No credits available - check default pricing
+        const defaultPackage = await getDefaultJobPostingPrice();
+        amount = defaultPackage ? defaultPackage.price : 0; // If no default pricing, make it free
+      }
     } catch (packageError) {
-      console.log('Package system not available, making job posting free');
+      console.log('Package system check failed, making job posting free:', packageError.message);
       amount = 0;
     }
 
@@ -42,8 +106,12 @@ router.post('/create-payment-intent', auth, async (req, res) => {
     if (amount === 0) {
       return res.json({
         success: true,
-        free_posting: true,
-        message: 'Job posting is currently free'
+        free_posting: !usePackageCredits,
+        using_package_credits: usePackageCredits,
+        package_info: packageInfo,
+        message: usePackageCredits ?
+          'Job posting will use your package credits' :
+          'Job posting is currently free'
       });
     }
     
