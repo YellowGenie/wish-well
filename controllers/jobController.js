@@ -381,14 +381,18 @@ class JobController {
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
 
       console.log(`Debug updateJob: User ${req.user.id} trying to update job ${id}`);
-      console.log(`Debug updateJob: Job manager_id: ${job.manager_id}`);
+      console.log(`Debug updateJob: Job manager_id type:`, typeof job.manager_id);
       console.log(`Debug updateJob: User manager profile _id: ${managerProfile?._id}`);
-      console.log(`Debug updateJob: Comparison: ${job.manager_id?.toString()} === ${managerProfile?._id?.toString()}`);
 
-      if (!managerProfile || job.manager_id.toString() !== managerProfile._id.toString()) {
-        console.log(`Debug updateJob: Authorization failed - bypassing for testing`);
-        // return res.status(403).json({ error: 'Not authorized to update this job' });
-        // Temporarily bypass for testing
+      // Handle case where manager_id might be populated object or just ObjectId
+      const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
+      const userManagerId = managerProfile._id.toString();
+
+      console.log(`Debug updateJob: Comparing jobManagerId (${jobManagerId}) with userManagerId (${userManagerId})`);
+
+      if (!managerProfile || jobManagerId !== userManagerId) {
+        console.log(`Debug updateJob: Authorization failed`);
+        return res.status(403).json({ error: 'Not authorized to update this job' });
       }
 
       const { budget_min, budget_max } = req.body;
@@ -398,7 +402,7 @@ class JobController {
         return res.status(400).json({ error: 'Budget max cannot be less than budget min' });
       }
 
-      const updated = await Job.update(id, req.body);
+      const updated = await Job.updateJob(id, req.body);
       
       if (!updated) {
         return res.status(400).json({ error: 'No changes made' });
@@ -434,19 +438,16 @@ class JobController {
         return res.status(403).json({ error: 'Manager profile not found' });
       }
 
-      // Convert to strings for comparison in case of ObjectId vs string mismatch
-      const jobManagerId = job.manager_id ? job.manager_id.toString() : null;
-      const userManagerId = managerProfile._id ? managerProfile._id.toString() : null;
+      // Handle case where manager_id might be populated object or just ObjectId
+      const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
+      const userManagerId = managerProfile._id.toString();
 
       console.log(`Debug deleteJob: Comparing jobManagerId (${jobManagerId}) with userManagerId (${userManagerId})`);
       console.log(`Debug deleteJob: Types - jobManagerId: ${typeof jobManagerId}, userManagerId: ${typeof userManagerId}`);
-      console.log(`Debug deleteJob: managerProfile object:`, managerProfile);
 
       if (jobManagerId !== userManagerId) {
         console.log(`Debug deleteJob: Authorization failed - jobManagerId (${jobManagerId}) !== userManagerId (${userManagerId})`);
-        console.log(`Debug deleteJob: TEMPORARILY BYPASSING AUTHORIZATION FOR TESTING`);
-        // return res.status(403).json({ error: 'Not authorized to delete this job' });
-        // Temporarily bypass authorization for testing
+        return res.status(403).json({ error: 'Not authorized to delete this job' });
       }
 
       console.log(`Debug deleteJob: Authorization passed, proceeding with deletion`);
@@ -669,13 +670,15 @@ class JobController {
       // Check if user owns this job
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
 
-      console.log(`Debug addSkillToJob: User ${req.user.id} trying to add skill to job ${id}`);
-      console.log(`Debug addSkillToJob: Job manager_id: ${job.manager_id}, Profile _id: ${managerProfile?._id}`);
+      // Handle case where manager_id might be populated object or just ObjectId
+      const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
+      const userManagerId = managerProfile._id.toString();
 
-      if (!managerProfile || job.manager_id.toString() !== managerProfile._id.toString()) {
-        console.log(`Debug addSkillToJob: Authorization failed - bypassing for testing`);
-        // return res.status(403).json({ error: 'Not authorized to modify this job' });
-        // Temporarily bypass for testing
+      console.log(`Debug job operation: User ${req.user.id} trying to modify job ${id}`);
+      console.log(`Debug job operation: Comparing jobManagerId (${jobManagerId}) with userManagerId (${userManagerId})`);
+
+      if (!managerProfile || jobManagerId !== userManagerId) {
+        return res.status(403).json({ error: 'Not authorized to modify this job' });
       }
 
       // Find or create skill
@@ -710,13 +713,15 @@ class JobController {
       // Check if user owns this job
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
 
-      console.log(`Debug addSkillToJob: User ${req.user.id} trying to add skill to job ${id}`);
-      console.log(`Debug addSkillToJob: Job manager_id: ${job.manager_id}, Profile _id: ${managerProfile?._id}`);
+      // Handle case where manager_id might be populated object or just ObjectId
+      const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
+      const userManagerId = managerProfile._id.toString();
 
-      if (!managerProfile || job.manager_id.toString() !== managerProfile._id.toString()) {
-        console.log(`Debug addSkillToJob: Authorization failed - bypassing for testing`);
-        // return res.status(403).json({ error: 'Not authorized to modify this job' });
-        // Temporarily bypass for testing
+      console.log(`Debug job operation: User ${req.user.id} trying to modify job ${id}`);
+      console.log(`Debug job operation: Comparing jobManagerId (${jobManagerId}) with userManagerId (${userManagerId})`);
+
+      if (!managerProfile || jobManagerId !== userManagerId) {
+        return res.status(403).json({ error: 'Not authorized to modify this job' });
       }
 
       const removed = await Job.removeSkill(id, skill_id);
