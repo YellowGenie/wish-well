@@ -402,7 +402,37 @@ class JobController {
         return res.status(400).json({ error: 'Budget max cannot be less than budget min' });
       }
 
-      const updated = await Job.updateJob(id, req.body);
+      // Handle skills separately since they need special processing
+      const { skills, ...updateData } = req.body;
+
+      // Update basic job data first
+      const updated = await Job.updateJob(id, updateData);
+
+      // Handle skills update if provided
+      if (skills && Array.isArray(skills)) {
+        const Skill = require('../models/Skill');
+        const job = await Job.findById(id);
+
+        // Clear existing skills
+        job.skills = [];
+
+        // Add new skills
+        for (const skillName of skills) {
+          if (!skillName || skillName.trim() === '') continue;
+
+          // Find or create skill
+          let skill = await Skill.findOne({ name: skillName.trim() }).collation({ locale: 'en', strength: 2 });
+
+          if (!skill) {
+            const skillId = await Skill.create({ name: skillName.trim() });
+            skill = { _id: skillId };
+          }
+
+          job.skills.push({ skill_id: skill._id, is_required: true });
+        }
+
+        await job.save();
+      }
       
       if (!updated) {
         return res.status(400).json({ error: 'No changes made' });
