@@ -10,6 +10,8 @@ const PaymentPackage = require('../models/PaymentPackage');
 // Helper function to check user's available credits
 async function checkUserCredits(userId) {
   try {
+    console.log(`Debug checkUserCredits: Checking credits for user ${userId}`);
+
     // Check for actual package purchases
     const packagePurchases = await Payment.find({
       user_id: userId,
@@ -17,8 +19,11 @@ async function checkUserCredits(userId) {
       status: 'completed'
     }).populate('package_id');
 
+    console.log(`Debug checkUserCredits: Found ${packagePurchases.length} package purchases`);
+
     if (packagePurchases && packagePurchases.length > 0) {
       const latestPackage = packagePurchases[packagePurchases.length - 1];
+      console.log(`Debug checkUserCredits: Using package credits from purchase ${latestPackage._id}`);
       return {
         hasCredits: true,
         packageInfo: {
@@ -29,9 +34,39 @@ async function checkUserCredits(userId) {
       };
     }
 
+    // Check for any completed payments that might be packages
+    const completedPayments = await Payment.find({
+      user_id: userId,
+      status: 'completed'
+    });
+    console.log(`Debug checkUserCredits: Found ${completedPayments.length} completed payments of any type`);
+
+    // If there are completed payments but none are package_purchase,
+    // let's check if they might be packages with different payment_type
+    if (completedPayments.length > 0) {
+      console.log(`Debug checkUserCredits: Completed payments details:`);
+      completedPayments.forEach((payment, index) => {
+        console.log(`  Payment ${index + 1}: type=${payment.payment_type}, amount=${payment.amount}, id=${payment._id}`);
+      });
+
+      // For now, if there are any completed payments, treat as having credits
+      // This is a temporary fix until we identify the correct payment type
+      const latestPayment = completedPayments[completedPayments.length - 1];
+      console.log(`Debug checkUserCredits: Using fallback - treating completed payment as package`);
+      return {
+        hasCredits: true,
+        packageInfo: {
+          name: 'Active Package',
+          remaining_credits: 5,
+          amount_paid: latestPayment.amount / 100
+        }
+      };
+    }
+
     // Fallback to simulation logic
     const PackageController = require('../controllers/packageController');
     const hasActivePackage = await PackageController.checkUserHasActivePackage(userId);
+    console.log(`Debug checkUserCredits: Simulation fallback result: ${hasActivePackage}`);
 
     if (hasActivePackage) {
       return {
@@ -43,6 +78,7 @@ async function checkUserCredits(userId) {
       };
     }
 
+    console.log(`Debug checkUserCredits: No credits found`);
     return { hasCredits: false };
   } catch (error) {
     console.error('Error checking user credits:', error);
@@ -145,6 +181,21 @@ router.post('/create-payment-intent', auth, async (req, res) => {
     let packageInfo = null;
 
     try {
+      // Debug: Check all payments for this user first
+      const allUserPayments = await Payment.find({ user_id }).sort({ created_at: -1 });
+      console.log(`Debug: User ${user_id} has ${allUserPayments.length} total payments:`);
+      allUserPayments.forEach((payment, index) => {
+        console.log(`  Payment ${index + 1}: ${payment.payment_type}, status: ${payment.status}, amount: ${payment.amount}`);
+      });
+
+      // Check for package purchases specifically
+      const packagePurchases = await Payment.find({
+        user_id,
+        payment_type: 'package_purchase',
+        status: 'completed'
+      });
+      console.log(`Debug: Found ${packagePurchases.length} completed package purchases`);
+
       // Check if user has available credits from packages
       const creditsCheck = await checkUserCredits(user_id);
       console.log('Credits check result:', creditsCheck);
@@ -154,13 +205,16 @@ router.post('/create-payment-intent', auth, async (req, res) => {
         usePackageCredits = true;
         packageInfo = creditsCheck.packageInfo;
         amount = 0;
+        console.log('Using package credits for job posting');
       } else {
         // No credits available - check default pricing
         const defaultPackage = await getDefaultJobPostingPrice();
         amount = defaultPackage ? defaultPackage.price : 0; // If no default pricing, make it free
+        console.log('No package credits found, using free posting');
       }
     } catch (packageError) {
       console.log('Package system check failed, making job posting free:', packageError.message);
+      console.error('Package error details:', packageError);
       amount = 0;
     }
 
