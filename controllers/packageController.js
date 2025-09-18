@@ -145,11 +145,66 @@ class PackageController {
         return true;
       }
 
-      // Fallback: check role or email patterns for simulation
-      return user.role === 'manager' || user.email.includes('test') || user.email.includes('demo');
+      // No auto-assignment - managers need to purchase packages
+      return false;
     } catch (error) {
       console.error('Error checking user package:', error);
       return false;
+    }
+  }
+
+  // Auto-assign admin-created packages to a manager
+  static async autoAssignAdminPackagesToManager(userId) {
+    try {
+      const Payment = require('../models/Payment');
+
+      // Check if this manager already has auto-assigned packages
+      const existingAssignments = await Payment.find({
+        user_id: userId,
+        payment_type: 'package_purchase',
+        status: 'completed',
+        'metadata.auto_assigned': true
+      });
+
+      if (existingAssignments.length > 0) {
+        console.log(`Manager ${userId} already has auto-assigned packages`);
+        return;
+      }
+
+      // Find all admin-created packages (packages with low prices like $1)
+      const adminPackages = await PaymentPackage.find({
+        'availability.is_active': true,
+        'pricing.base_price': { $lte: 200 } // $2 or less (in cents)
+      });
+
+      console.log(`Found ${adminPackages.length} admin packages to auto-assign`);
+
+      // Create payment records for each admin package
+      for (const pkg of adminPackages) {
+        const paymentRecord = new Payment({
+          user_id: userId,
+          package_id: pkg._id,
+          amount: pkg.pricing.base_price,
+          currency: pkg.pricing.currency || 'usd',
+          payment_type: 'package_purchase',
+          status: 'completed',
+          payment_method: 'auto_assigned',
+          stripe_payment_intent_id: `auto_assigned_${userId}_${pkg._id}`,
+          metadata: {
+            auto_assigned: true,
+            assigned_by: 'system',
+            package_name: pkg.name,
+            assigned_at: new Date()
+          },
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+
+        await paymentRecord.save();
+        console.log(`Auto-assigned package "${pkg.name}" to manager ${userId}`);
+      }
+    } catch (error) {
+      console.error('Error auto-assigning packages:', error);
     }
   }
 
@@ -271,6 +326,69 @@ class PackageController {
     } catch (error) {
       console.error('Get usage analytics error:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Auto-assign a package to all existing managers (called when admin creates a new package)
+  static async autoAssignPackageToAllManagers(packageId) {
+    try {
+      console.log(`Auto-assigning package ${packageId} to all managers`);
+
+      // Find all users with manager role
+      const managers = await User.find({ role: 'manager' });
+      console.log(`Found ${managers.length} managers`);
+
+      // Get the package details
+      const pkg = await PaymentPackage.findById(packageId);
+      if (!pkg) {
+        console.error('Package not found for auto-assignment');
+        return;
+      }
+
+      const Payment = require('../models/Payment');
+
+      // Auto-assign to each manager
+      for (const manager of managers) {
+        // Check if manager already has this package
+        const existingAssignment = await Payment.findOne({
+          user_id: manager._id,
+          package_id: packageId,
+          payment_type: 'package_purchase',
+          status: 'completed'
+        });
+
+        if (existingAssignment) {
+          console.log(`Manager ${manager._id} already has package ${packageId}`);
+          continue;
+        }
+
+        // Create payment record
+        const paymentRecord = new Payment({
+          user_id: manager._id,
+          package_id: packageId,
+          amount: pkg.pricing.base_price,
+          currency: pkg.pricing.currency || 'usd',
+          payment_type: 'package_purchase',
+          status: 'completed',
+          payment_method: 'auto_assigned',
+          stripe_payment_intent_id: `auto_assigned_${manager._id}_${packageId}`,
+          metadata: {
+            auto_assigned: true,
+            assigned_by: 'system',
+            package_name: pkg.name,
+            assigned_at: new Date()
+          },
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+
+        await paymentRecord.save();
+        console.log(`Auto-assigned package "${pkg.name}" to manager ${manager._id} (${manager.email})`);
+      }
+
+      console.log(`Completed auto-assignment of package ${packageId} to all managers`);
+    } catch (error) {
+      console.error('Error auto-assigning package to all managers:', error);
     }
   }
 

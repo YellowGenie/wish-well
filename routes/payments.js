@@ -34,49 +34,7 @@ async function checkUserCredits(userId) {
       };
     }
 
-    // Check for any completed payments that might be packages
-    const completedPayments = await Payment.find({
-      user_id: userId,
-      status: 'completed'
-    });
-    console.log(`Debug checkUserCredits: Found ${completedPayments.length} completed payments of any type`);
-
-    // If there are completed payments but none are package_purchase,
-    // let's check if they might be packages with different payment_type
-    if (completedPayments.length > 0) {
-      console.log(`Debug checkUserCredits: Completed payments details:`);
-      completedPayments.forEach((payment, index) => {
-        console.log(`  Payment ${index + 1}: type=${payment.payment_type}, amount=${payment.amount}, id=${payment._id}`);
-      });
-
-      // For now, if there are any completed payments, treat as having credits
-      // This is a temporary fix until we identify the correct payment type
-      const latestPayment = completedPayments[completedPayments.length - 1];
-      console.log(`Debug checkUserCredits: Using fallback - treating completed payment as package`);
-      return {
-        hasCredits: true,
-        packageInfo: {
-          name: 'Active Package',
-          remaining_credits: 5,
-          amount_paid: latestPayment.amount / 100
-        }
-      };
-    }
-
-    // Fallback to simulation logic
-    const PackageController = require('../controllers/packageController');
-    const hasActivePackage = await PackageController.checkUserHasActivePackage(userId);
-    console.log(`Debug checkUserCredits: Simulation fallback result: ${hasActivePackage}`);
-
-    if (hasActivePackage) {
-      return {
-        hasCredits: true,
-        packageInfo: {
-          name: 'Professional Package',
-          remaining_credits: 5
-        }
-      };
-    }
+    // No package purchases found - user has no credits
 
     console.log(`Debug checkUserCredits: No credits found`);
     return { hasCredits: false };
@@ -174,62 +132,61 @@ router.post('/create-payment-intent', auth, async (req, res) => {
     // Debug logging
     console.log(`Creating payment intent for user ${user_id}`);
 
-    // Check user's active packages and available credits
-    const PackageController = require('../controllers/packageController');
-    let amount = 0; // Default to free
-    let usePackageCredits = false;
-    let packageInfo = null;
+    // Check if user has existing package credits first
+    const creditsCheck = await checkUserCredits(user_id);
+    console.log('Credits check result:', creditsCheck);
 
-    try {
-      // Debug: Check all payments for this user first
-      const allUserPayments = await Payment.find({ user_id }).sort({ created_at: -1 });
-      console.log(`Debug: User ${user_id} has ${allUserPayments.length} total payments:`);
-      allUserPayments.forEach((payment, index) => {
-        console.log(`  Payment ${index + 1}: ${payment.payment_type}, status: ${payment.status}, amount: ${payment.amount}`);
-      });
-
-      // Check for package purchases specifically
-      const packagePurchases = await Payment.find({
-        user_id,
-        payment_type: 'package_purchase',
-        status: 'completed'
-      });
-      console.log(`Debug: Found ${packagePurchases.length} completed package purchases`);
-
-      // Check if user has available credits from packages
-      const creditsCheck = await checkUserCredits(user_id);
-      console.log('Credits check result:', creditsCheck);
-
-      if (creditsCheck.hasCredits) {
-        // User has available credits - post for free using package credits
-        usePackageCredits = true;
-        packageInfo = creditsCheck.packageInfo;
-        amount = 0;
-        console.log('Using package credits for job posting');
-      } else {
-        // No credits available - check default pricing
-        const defaultPackage = await getDefaultJobPostingPrice();
-        amount = defaultPackage ? defaultPackage.price : 0; // If no default pricing, make it free
-        console.log('No package credits found, using free posting');
-      }
-    } catch (packageError) {
-      console.log('Package system check failed, making job posting free:', packageError.message);
-      console.error('Package error details:', packageError);
-      amount = 0;
-    }
-
-    // If amount is 0, return success without creating Stripe payment
-    if (amount === 0) {
+    if (creditsCheck.hasCredits) {
+      // User has available credits - post for free using package credits
+      console.log('Using package credits for job posting');
       return res.json({
         success: true,
-        free_posting: !usePackageCredits,
-        using_package_credits: usePackageCredits,
-        package_info: packageInfo,
-        message: usePackageCredits ?
-          'Job posting will use your package credits' :
-          'Job posting is currently free'
+        free_posting: false,
+        using_package_credits: true,
+        package_info: creditsCheck.packageInfo,
+        message: 'Job posting will use your package credits'
       });
     }
+
+    // No existing credits - find admin packages available for purchase
+    console.log('No existing credits found, looking for admin packages to purchase');
+
+    const adminPackages = await PaymentPackage.find({
+      'availability.is_active': true,
+      'pricing.base_price': { $lte: 10000 } // Up to $100 (in cents)
+    }).sort({ 'pricing.base_price': 1 });
+
+    console.log(`Found ${adminPackages.length} admin packages available for purchase`);
+
+    if (adminPackages.length > 0) {
+      // Get the first (cheapest) admin package
+      const packageToPurchase = adminPackages[0];
+      console.log(`Offering package for purchase: ${packageToPurchase.name} for $${packageToPurchase.pricing.base_price / 100}`);
+
+      return res.json({
+        success: true,
+        requires_package_purchase: true,
+        package_to_purchase: {
+          id: packageToPurchase._id,
+          name: packageToPurchase.name,
+          description: packageToPurchase.description,
+          price: packageToPurchase.pricing.base_price / 100, // Convert to dollars
+          price_cents: packageToPurchase.pricing.base_price,
+          currency: packageToPurchase.pricing.currency || 'usd',
+          features: packageToPurchase.features
+        },
+        message: `Purchase ${packageToPurchase.name} to post your job`
+      });
+    }
+
+    // Fallback to free posting if no admin packages found
+    console.log('No admin packages found, defaulting to free posting');
+    return res.json({
+      success: true,
+      free_posting: true,
+      using_package_credits: false,
+      message: 'Job posting is currently free'
+    });
     
     // Create or get Stripe customer
     let customer;
@@ -292,6 +249,121 @@ router.post('/create-payment-intent', auth, async (req, res) => {
     console.error('Payment intent creation error:', error);
     res.status(500).json({
       error: 'Failed to create payment intent',
+      details: error.message
+    });
+  }
+});
+
+// Create payment intent for package purchase
+router.post('/create-package-payment-intent', auth, async (req, res) => {
+  try {
+    const { package_id, job_data } = req.body;
+    const user_id = req.user.id;
+
+    console.log(`Creating package payment intent for user ${user_id}, package ${package_id}`);
+    console.log('Request body:', req.body);
+    console.log('User:', req.user);
+
+    // Get the package details
+    const packageToPurchase = await PaymentPackage.findById(package_id);
+    if (!packageToPurchase) {
+      return res.status(404).json({
+        error: 'Package not found'
+      });
+    }
+
+    if (!packageToPurchase.availability.is_active) {
+      return res.status(400).json({
+        error: 'Package is not available for purchase'
+      });
+    }
+
+    const amount = packageToPurchase.pricing.base_price;
+
+    // Create or get Stripe customer
+    let customer;
+    try {
+      const customers = await stripe.customers.list({
+        email: req.user.email,
+        limit: 1
+      });
+
+      if (customers.data.length > 0) {
+        customer = customers.data[0];
+      } else {
+        customer = await stripe.customers.create({
+          email: req.user.email,
+          name: `${req.user.first_name} ${req.user.last_name}`,
+          metadata: {
+            user_id: user_id.toString()
+          }
+        });
+      }
+    } catch (error) {
+      return res.status(400).json({
+        error: 'Failed to create customer',
+        details: error.message
+      });
+    }
+
+    // Check if Stripe is available
+    if (!stripe) {
+      return res.status(503).json({
+        error: 'Payment system unavailable',
+        message: 'Stripe is not configured'
+      });
+    }
+
+    // Create payment intent
+    console.log('Creating Stripe payment intent for package purchase...');
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount,
+      currency: packageToPurchase.pricing.currency || 'usd',
+      customer: customer.id,
+      metadata: {
+        user_id: user_id.toString(),
+        package_id: package_id.toString(),
+        package_name: packageToPurchase.name,
+        job_title: job_data?.title || 'New Job'
+      },
+      setup_future_usage: 'on_session'
+    });
+
+    console.log('Stripe payment intent created:', paymentIntent.id);
+
+    // Save payment record to database
+    console.log('Saving payment record to database...');
+    const payment_id = await Payment.create({
+      user_id,
+      package_id,
+      stripe_customer_id: customer.id,
+      stripe_payment_intent_id: paymentIntent.id,
+      original_amount: amount,
+      amount: amount,
+      net_amount: amount, // For package purchases, net amount is same as amount (no fees)
+      currency: packageToPurchase.pricing.currency || 'usd',
+      status: 'pending',
+      payment_type: 'package_purchase',
+      description: `Package purchase: ${packageToPurchase.name}`
+    });
+
+    console.log('Payment record saved with ID:', payment_id);
+
+    res.json({
+      client_secret: paymentIntent.client_secret,
+      payment_id,
+      customer_id: customer.id,
+      package_info: {
+        name: packageToPurchase.name,
+        price: amount / 100,
+        currency: packageToPurchase.pricing.currency || 'usd'
+      }
+    });
+
+  } catch (error) {
+    console.error('Package payment intent creation error:', error);
+    res.status(500).json({
+      error: 'Failed to create package payment intent',
       details: error.message
     });
   }
@@ -513,6 +585,114 @@ Thank you for your business!
     console.error('Invoice download error:', error);
     res.status(500).json({
       error: 'Failed to download invoice',
+      details: error.message
+    });
+  }
+});
+
+// Get pending payments (admin only)
+router.get('/pending', auth, async (req, res) => {
+  try {
+    // Check if user is admin (you may need to adjust this based on your auth system)
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        error: 'Unauthorized access'
+      });
+    }
+
+    const pendingPayments = await Payment.find({
+      status: 'pending'
+    })
+    .populate('user_id', 'first_name last_name email')
+    .sort({ created_at: -1 })
+    .limit(50);
+
+    res.json({
+      success: true,
+      payments: pendingPayments
+    });
+  } catch (error) {
+    console.error('Error fetching pending payments:', error);
+    res.status(500).json({
+      error: 'Failed to fetch pending payments',
+      details: error.message
+    });
+  }
+});
+
+// Resolve pending payment (admin only)
+router.post('/resolve-pending', auth, async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        error: 'Unauthorized access'
+      });
+    }
+
+    const { payment_intent_id } = req.body;
+
+    if (!payment_intent_id) {
+      return res.status(400).json({
+        error: 'Payment intent ID is required'
+      });
+    }
+
+    // Check Stripe payment intent status
+    if (stripe) {
+      try {
+        const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+
+        if (paymentIntent.status === 'succeeded') {
+          // Update payment status in database
+          const updated = await Payment.updateByPaymentIntentId(payment_intent_id, {
+            status: 'completed'
+          });
+
+          if (updated) {
+            res.json({
+              success: true,
+              message: 'Payment resolved successfully'
+            });
+          } else {
+            res.status(404).json({
+              error: 'Payment not found in database'
+            });
+          }
+        } else {
+          res.status(400).json({
+            error: 'Payment not completed in Stripe',
+            stripe_status: paymentIntent.status
+          });
+        }
+      } catch (stripeError) {
+        console.error('Stripe error:', stripeError);
+        res.status(500).json({
+          error: 'Failed to check Stripe payment status',
+          details: stripeError.message
+        });
+      }
+    } else {
+      // If Stripe is not available, just mark as completed
+      const updated = await Payment.updateByPaymentIntentId(payment_intent_id, {
+        status: 'completed'
+      });
+
+      if (updated) {
+        res.json({
+          success: true,
+          message: 'Payment marked as completed (Stripe unavailable)'
+        });
+      } else {
+        res.status(404).json({
+          error: 'Payment not found in database'
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error resolving pending payment:', error);
+    res.status(500).json({
+      error: 'Failed to resolve pending payment',
       details: error.message
     });
   }

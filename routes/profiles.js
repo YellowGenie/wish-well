@@ -18,6 +18,9 @@ router.post('/fix/talent-profile/:email', ProfileController.createMissingTalentP
 // FIX: Create missing TalentProfile (GET - for browser)
 router.get('/fix/talent-profile/:email', ProfileController.createMissingTalentProfile);
 
+// User self-service role switching
+router.put('/role', auth, ProfileController.updateUserRole);
+
 // Public manager profile routes  
 router.get('/managers/:id', ProfileController.getManagerProfile);
 

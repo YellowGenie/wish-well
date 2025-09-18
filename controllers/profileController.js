@@ -516,6 +516,46 @@ class ProfileController {
       res.status(500).json({ error: 'Internal server error' });
     }
   }
+
+  static async updateUserRole(req, res) {
+    try {
+      const { role } = req.body;
+      const userId = req.user.id;
+
+      // Validate role
+      if (!['talent', 'manager', 'admin'].includes(role)) {
+        return res.status(400).json({ error: 'Invalid role' });
+      }
+
+      // Check admin role restrictions
+      if (role === 'admin') {
+        const User = require('../models/User');
+        const targetUser = await User.findById(userId);
+        if (!targetUser || !targetUser.email.endsWith('@yellowgenie.io')) {
+          return res.status(403).json({
+            error: 'Admin role restricted to @yellowgenie.io email addresses'
+          });
+        }
+      }
+
+      // Update user role
+      const User = require('../models/User');
+      const success = await User.updateProfile(userId, { role });
+
+      if (!success) {
+        return res.status(400).json({ error: 'Failed to update user role' });
+      }
+
+      res.json({
+        success: true,
+        message: 'Role updated successfully',
+        new_role: role
+      });
+    } catch (error) {
+      console.error('Update user role error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
 }
 
 module.exports = ProfileController;
