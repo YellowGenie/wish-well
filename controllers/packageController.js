@@ -48,41 +48,75 @@ class PackageController {
   // Get user's purchased packages
   static async getUserPackages(req, res) {
     try {
-      // For demonstration purposes, we'll simulate that some users have active packages
-      // In a real implementation, this would fetch from a UserPackages table
       const userId = req.user.id;
 
-      // Simulate active packages for certain users (you can modify this logic)
-      const hasActivePackage = await this.checkUserHasActivePackage(userId);
+      // Check for actual package purchases
+      const Payment = require('../models/Payment');
+      const PaymentPackage = require('../models/PaymentPackage');
 
-      if (hasActivePackage) {
+      const packagePurchases = await Payment.find({
+        user_id: userId,
+        payment_type: 'package_purchase',
+        status: 'completed'
+      }).populate('package_id');
+
+      if (packagePurchases && packagePurchases.length > 0) {
+        // Return actual purchased packages
+        const packages = packagePurchases.map(purchase => {
+          const pkg = purchase.package_id;
+          return {
+            id: purchase._id,
+            name: pkg ? pkg.name : 'Unknown Package',
+            job_post_credits: 5, // Default credits for now
+            featured_credits: 2,
+            amount_paid: purchase.amount / 100, // Convert from cents to dollars
+            purchase_date: purchase.created_at,
+            expires_at: new Date(purchase.created_at.getTime() + 30 * 24 * 60 * 60 * 1000) // 30 days from purchase
+          };
+        });
+
         res.json({
           success: true,
-          packages: [
-            {
-              id: '1',
-              name: 'Professional Package',
-              job_post_credits: 5,
-              featured_credits: 2,
-              expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
-            }
-          ],
+          packages,
           summary: {
-            total_credits: 5,
+            total_credits: packages.length * 5, // 5 credits per package
             used_credits: 0,
-            remaining_credits: 5
+            remaining_credits: packages.length * 5
           }
         });
       } else {
-        res.json({
-          success: true,
-          packages: [],
-          summary: {
-            total_credits: 0,
-            used_credits: 0,
-            remaining_credits: 0
-          }
-        });
+        // Check fallback logic for simulation
+        const hasActivePackage = await this.checkUserHasActivePackage(userId);
+
+        if (hasActivePackage) {
+          res.json({
+            success: true,
+            packages: [
+              {
+                id: 'simulated-1',
+                name: 'Professional Package',
+                job_post_credits: 5,
+                featured_credits: 2,
+                expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+              }
+            ],
+            summary: {
+              total_credits: 5,
+              used_credits: 0,
+              remaining_credits: 5
+            }
+          });
+        } else {
+          res.json({
+            success: true,
+            packages: [],
+            summary: {
+              total_credits: 0,
+              used_credits: 0,
+              remaining_credits: 0
+            }
+          });
+        }
       }
     } catch (error) {
       console.error('Get user packages error:', error);
@@ -93,15 +127,26 @@ class PackageController {
   // Helper method to check if user has active package
   static async checkUserHasActivePackage(userId) {
     try {
-      // For now, we'll simulate that users with certain patterns have packages
-      // In real implementation, this would check a UserPackages table
-
-      // You can modify this logic to test with your user
-      // For example, check if user has made any payments or has certain roles
       const user = await User.findById(userId);
+      if (!user) {
+        return false;
+      }
 
-      // Let's say managers or users who have email containing certain domains have packages
-      return user && (user.role === 'manager' || user.email.includes('test') || user.email.includes('demo'));
+      // Check for completed package purchases
+      const Payment = require('../models/Payment');
+      const completedPackagePurchases = await Payment.find({
+        user_id: userId,
+        payment_type: 'package_purchase',
+        status: 'completed'
+      });
+
+      // If user has any completed package purchases, they have an active package
+      if (completedPackagePurchases && completedPackagePurchases.length > 0) {
+        return true;
+      }
+
+      // Fallback: check role or email patterns for simulation
+      return user.role === 'manager' || user.email.includes('test') || user.email.includes('demo');
     } catch (error) {
       console.error('Error checking user package:', error);
       return false;
@@ -138,30 +183,59 @@ class PackageController {
   static async checkCredits(req, res) {
     try {
       const userId = req.user.id;
-      const hasActivePackage = await this.checkUserHasActivePackage(userId);
 
-      if (hasActivePackage) {
+      // Check for actual package purchases
+      const Payment = require('../models/Payment');
+      const packagePurchases = await Payment.find({
+        user_id: userId,
+        payment_type: 'package_purchase',
+        status: 'completed'
+      }).populate('package_id');
+
+      if (packagePurchases && packagePurchases.length > 0) {
+        const totalCredits = packagePurchases.length * 5; // 5 credits per package
+        const latestPackage = packagePurchases[packagePurchases.length - 1];
+
         res.json({
           success: true,
           credits: {
-            total: 5,
+            total: totalCredits,
             used: 0,
-            remaining: 5
+            remaining: totalCredits
           },
           package_info: {
-            name: 'Professional Package',
-            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+            name: latestPackage.package_id ? latestPackage.package_id.name : 'Purchased Package',
+            amount_paid: latestPackage.amount / 100,
+            expires_at: new Date(latestPackage.created_at.getTime() + 30 * 24 * 60 * 60 * 1000)
           }
         });
       } else {
-        res.json({
-          success: true,
-          credits: {
-            total: 0,
-            used: 0,
-            remaining: 0
-          }
-        });
+        // Fallback to simulation logic
+        const hasActivePackage = await this.checkUserHasActivePackage(userId);
+
+        if (hasActivePackage) {
+          res.json({
+            success: true,
+            credits: {
+              total: 5,
+              used: 0,
+              remaining: 5
+            },
+            package_info: {
+              name: 'Professional Package',
+              expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+            }
+          });
+        } else {
+          res.json({
+            success: true,
+            credits: {
+              total: 0,
+              used: 0,
+              remaining: 0
+            }
+          });
+        }
       }
     } catch (error) {
       console.error('Check credits error:', error);

@@ -10,6 +10,26 @@ const PaymentPackage = require('../models/PaymentPackage');
 // Helper function to check user's available credits
 async function checkUserCredits(userId) {
   try {
+    // Check for actual package purchases
+    const packagePurchases = await Payment.find({
+      user_id: userId,
+      payment_type: 'package_purchase',
+      status: 'completed'
+    }).populate('package_id');
+
+    if (packagePurchases && packagePurchases.length > 0) {
+      const latestPackage = packagePurchases[packagePurchases.length - 1];
+      return {
+        hasCredits: true,
+        packageInfo: {
+          name: latestPackage.package_id ? latestPackage.package_id.name : 'Purchased Package',
+          remaining_credits: packagePurchases.length * 5, // 5 credits per package
+          amount_paid: latestPackage.amount / 100
+        }
+      };
+    }
+
+    // Fallback to simulation logic
     const PackageController = require('../controllers/packageController');
     const hasActivePackage = await PackageController.checkUserHasActivePackage(userId);
 
