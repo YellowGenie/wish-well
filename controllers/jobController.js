@@ -112,7 +112,7 @@ class JobController {
       }
 
       const finalJobData = {
-        manager_id: managerProfile.id,
+        manager_id: managerProfile._id,
         title,
         description,
         budget_type,
@@ -202,7 +202,7 @@ class JobController {
       }
 
       const jobData = {
-        manager_id: managerProfile.id,
+        manager_id: managerProfile._id,
         title,
         description,
         budget_type,
@@ -292,7 +292,7 @@ class JobController {
       }
 
       const jobData = {
-        manager_id: managerProfile.id,
+        manager_id: managerProfile._id,
         title,
         description,
         budget_type,
@@ -379,7 +379,7 @@ class JobController {
 
       // Check if user owns this job
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
-      if (!managerProfile || job.manager_id !== managerProfile.id) {
+      if (!managerProfile || job.manager_id.toString() !== managerProfile._id.toString()) {
         return res.status(403).json({ error: 'Not authorized to update this job' });
       }
 
@@ -406,24 +406,48 @@ class JobController {
   static async deleteJob(req, res) {
     try {
       const { id } = req.params;
+      console.log(`Debug deleteJob: Attempting to delete job ${id} for user ${req.user.id}`);
+
       const job = await Job.findById(id);
-      
+
       if (!job) {
+        console.log(`Debug deleteJob: Job ${id} not found`);
         return res.status(404).json({ error: 'Job not found' });
       }
 
+      console.log(`Debug deleteJob: Found job ${id}, manager_id: ${job.manager_id}`);
+
       // Check if user owns this job
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
-      if (!managerProfile || job.manager_id !== managerProfile.id) {
+      console.log(`Debug deleteJob: Manager profile found:`, managerProfile ? `id: ${managerProfile.id}` : 'null');
+
+      if (!managerProfile) {
+        console.log(`Debug deleteJob: No manager profile found for user ${req.user.id}`);
+        return res.status(403).json({ error: 'Manager profile not found' });
+      }
+
+      // Convert to strings for comparison in case of ObjectId vs string mismatch
+      const jobManagerId = job.manager_id ? job.manager_id.toString() : null;
+      const userManagerId = managerProfile._id ? managerProfile._id.toString() : null;
+
+      console.log(`Debug deleteJob: Comparing jobManagerId (${jobManagerId}) with userManagerId (${userManagerId})`);
+      console.log(`Debug deleteJob: Types - jobManagerId: ${typeof jobManagerId}, userManagerId: ${typeof userManagerId}`);
+      console.log(`Debug deleteJob: managerProfile object:`, managerProfile);
+
+      if (jobManagerId !== userManagerId) {
+        console.log(`Debug deleteJob: Authorization failed - jobManagerId (${jobManagerId}) !== userManagerId (${userManagerId})`);
         return res.status(403).json({ error: 'Not authorized to delete this job' });
       }
 
+      console.log(`Debug deleteJob: Authorization passed, proceeding with deletion`);
       const deleted = await Job.deleteJob(id);
-      
+
       if (!deleted) {
+        console.log(`Debug deleteJob: Delete operation failed for job ${id}`);
         return res.status(400).json({ error: 'Failed to delete job' });
       }
 
+      console.log(`Debug deleteJob: Job ${id} deleted successfully`);
       res.json({ message: 'Job deleted successfully' });
     } catch (error) {
       console.error('Delete job error:', error);
@@ -606,7 +630,7 @@ class JobController {
       }
 
       const result = await Job.getJobsByManager(
-        managerProfile.id,
+        managerProfile._id,
         parseInt(page),
         parseInt(limit)
       );
@@ -634,7 +658,7 @@ class JobController {
 
       // Check if user owns this job
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
-      if (!managerProfile || job.manager_id !== managerProfile.id) {
+      if (!managerProfile || job.manager_id.toString() !== managerProfile._id.toString()) {
         return res.status(403).json({ error: 'Not authorized to modify this job' });
       }
 
@@ -669,7 +693,7 @@ class JobController {
 
       // Check if user owns this job
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
-      if (!managerProfile || job.manager_id !== managerProfile.id) {
+      if (!managerProfile || job.manager_id.toString() !== managerProfile._id.toString()) {
         return res.status(403).json({ error: 'Not authorized to modify this job' });
       }
 
