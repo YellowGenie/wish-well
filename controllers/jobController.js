@@ -418,7 +418,7 @@ class JobController {
         return res.status(403).json({ error: 'Not authorized to delete this job' });
       }
 
-      const deleted = await Job.delete(id);
+      const deleted = await Job.deleteJob(id);
       
       if (!deleted) {
         return res.status(400).json({ error: 'Failed to delete job' });
