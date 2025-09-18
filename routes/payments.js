@@ -91,11 +91,52 @@ const checkStripe = (req, res, next) => {
 // Apply Stripe check to payment routes that need it (excluding create-payment-intent for free posting)
 router.use(['/confirm-payment', '/cards', '/webhook'], checkStripe);
 
+// Debug endpoint to check user payments (temporary)
+router.get('/debug-user-payments', auth, async (req, res) => {
+  try {
+    const user_id = req.user.id;
+
+    // Get all payments for this user
+    const allPayments = await Payment.find({ user_id }).sort({ created_at: -1 });
+
+    // Check specific package purchases
+    const packagePurchases = await Payment.find({
+      user_id,
+      payment_type: 'package_purchase',
+      status: 'completed'
+    });
+
+    // Check any completed payments
+    const completedPayments = await Payment.find({
+      user_id,
+      status: 'completed'
+    });
+
+    res.json({
+      user_id,
+      total_payments: allPayments.length,
+      all_payments: allPayments,
+      package_purchases,
+      completed_payments,
+      debug_info: {
+        has_package_purchases: packagePurchases.length > 0,
+        has_completed_payments: completedPayments.length > 0
+      }
+    });
+  } catch (error) {
+    console.error('Debug payments error:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
 // Create payment intent for job posting
 router.post('/create-payment-intent', auth, async (req, res) => {
   try {
     const { job_id, description = 'Job posting fee' } = req.body;
     const user_id = req.user.id;
+
+    // Debug logging
+    console.log(`Creating payment intent for user ${user_id}`);
 
     // Check user's active packages and available credits
     const PackageController = require('../controllers/packageController');
@@ -106,6 +147,7 @@ router.post('/create-payment-intent', auth, async (req, res) => {
     try {
       // Check if user has available credits from packages
       const creditsCheck = await checkUserCredits(user_id);
+      console.log('Credits check result:', creditsCheck);
 
       if (creditsCheck.hasCredits) {
         // User has available credits - post for free using package credits
