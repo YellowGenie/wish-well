@@ -4,6 +4,7 @@ const Job = require('../models/Job');
 const Proposal = require('../models/Proposal');
 const Message = require('../models/Message');
 const Skill = require('../models/Skill');
+const AdminSettings = require('../models/AdminSettings');
 // MongoDB connection handled through models
 
 class AdminController {
@@ -858,7 +859,7 @@ class AdminController {
   static async getAllJobs(req, res) {
     try {
       const { status, page = 1, limit = 20 } = req.query;
-      
+
       const searchParams = {
         status: status || null,
         page: parseInt(page),
@@ -868,10 +869,123 @@ class AdminController {
       };
 
       const result = await Job.search(searchParams);
-      
+
       res.json(result);
     } catch (error) {
       console.error('Get all jobs error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async getAdminJobs(req, res) {
+    try {
+      const {
+        page = 1,
+        limit = 20,
+        admin_status,
+        search,
+        sort_by = 'created_at',
+        sort_order = 'DESC',
+        company,
+        manager,
+        dateRange
+      } = req.query;
+
+      const searchParams = {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        admin_status,
+        search_query: search,
+        sort_by,
+        sort_order,
+        company_name: company,
+        manager_name: manager,
+        date_range: dateRange
+      };
+
+      const result = await Job.getAdminJobs(searchParams);
+      res.json(result);
+    } catch (error) {
+      console.error('Get admin jobs error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async getAdminJobDetails(req, res) {
+    try {
+      const { id } = req.params;
+      const result = await Job.getJobWithApplications(id);
+      res.json(result);
+    } catch (error) {
+      console.error('Get admin job details error:', error);
+      if (error.message === 'Job not found') {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async getJobApplications(req, res) {
+    try {
+      const { id } = req.params;
+      const { page = 1, limit = 20 } = req.query;
+
+      const result = await Proposal.getProposalsByJob(id, parseInt(page), parseInt(limit));
+      res.json(result);
+    } catch (error) {
+      console.error('Get job applications error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async updateJobAdminStatus(req, res) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id } = req.params;
+      const { admin_status, admin_notes } = req.body;
+
+      const success = await Job.updateAdminStatus(id, {
+        admin_status,
+        admin_notes,
+        admin_reviewed_by: req.user.id
+      });
+
+      if (!success) {
+        return res.status(404).json({ error: 'Job not found or update failed' });
+      }
+
+      res.json({ message: 'Job admin status updated successfully' });
+    } catch (error) {
+      console.error('Update job admin status error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async bulkUpdateJobStatus(req, res) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { job_ids, admin_status, admin_notes } = req.body;
+
+      const updatedCount = await Job.bulkUpdateAdminStatus(job_ids, {
+        admin_status,
+        admin_notes,
+        admin_reviewed_by: req.user.id
+      });
+
+      res.json({
+        message: `Successfully updated ${updatedCount} job(s)`,
+        updated_count: updatedCount
+      });
+    } catch (error) {
+      console.error('Bulk update job status error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -899,6 +1013,53 @@ class AdminController {
       res.json({ message: 'Job status updated successfully' });
     } catch (error) {
       console.error('Update job status error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Admin Settings Management
+  static async getAdminSettings(req, res) {
+    try {
+      const { category } = req.query;
+      const settings = await AdminSettings.getAllSettings(category);
+      res.json({ settings });
+    } catch (error) {
+      console.error('Get admin settings error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async getJobApprovalSettings(req, res) {
+    try {
+      const settings = await AdminSettings.getJobApprovalSettings();
+      res.json(settings);
+    } catch (error) {
+      console.error('Get job approval settings error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async updateJobApprovalSettings(req, res) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { auto_approval, requires_manual_review, review_time_hours } = req.body;
+
+      const settings = await AdminSettings.updateJobApprovalSettings({
+        auto_approval,
+        requires_manual_review,
+        review_time_hours
+      }, req.user.id);
+
+      res.json({
+        message: 'Job approval settings updated successfully',
+        settings
+      });
+    } catch (error) {
+      console.error('Update job approval settings error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

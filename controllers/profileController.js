@@ -546,6 +546,21 @@ class ProfileController {
         return res.status(400).json({ error: 'Failed to update user role' });
       }
 
+      // Create the appropriate profile if it doesn't exist
+      if (role === 'talent') {
+        // Check if talent profile exists
+        const existingTalentProfile = await TalentProfile.findOne({ user_id: userId });
+        if (!existingTalentProfile) {
+          await TalentProfile.create({ user_id: userId });
+        }
+      } else if (role === 'manager') {
+        // Check if manager profile exists
+        const existingManagerProfile = await ManagerProfile.findOne({ user_id: userId });
+        if (!existingManagerProfile) {
+          await ManagerProfile.create({ user_id: userId });
+        }
+      }
+
       res.json({
         success: true,
         message: 'Role updated successfully',

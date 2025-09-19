@@ -64,8 +64,28 @@ router.get('/analytics/messaging', AdminController.getMessagingAnalytics);
 router.get('/analytics/applications', AdminController.getJobApplicationAnalytics);
 
 // Job Management
-router.get('/jobs', AdminController.getAllJobs);
+router.get('/jobs', AdminController.getAdminJobs);
+router.get('/jobs/:id', AdminController.getAdminJobDetails);
+router.get('/jobs/:id/applications', AdminController.getJobApplications);
+router.put('/jobs/:id/admin-status', [
+  body('admin_status').isIn(['pending', 'approved', 'rejected', 'inappropriate', 'hidden']),
+  body('admin_notes').optional().trim()
+], AdminController.updateJobAdminStatus);
+router.post('/jobs/bulk-update', [
+  body('job_ids').isArray({ min: 1 }),
+  body('admin_status').isIn(['approved', 'rejected', 'inappropriate', 'hidden']),
+  body('admin_notes').optional().trim()
+], AdminController.bulkUpdateJobStatus);
 router.put('/jobs/:id/status', AdminController.validateJobStatusUpdate, AdminController.updateJobStatus);
+
+// Admin Settings Management
+router.get('/settings', AdminController.getAdminSettings);
+router.get('/settings/job-approval', AdminController.getJobApprovalSettings);
+router.put('/settings/job-approval', [
+  body('auto_approval').optional().isBoolean(),
+  body('requires_manual_review').optional().isBoolean(),
+  body('review_time_hours').optional().isInt({ min: 1, max: 168 })
+], AdminController.updateJobApprovalSettings);
 
 // Proposal Management
 router.get('/proposals', AdminController.getAllProposals);

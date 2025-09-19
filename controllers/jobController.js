@@ -328,6 +328,38 @@ class JobController {
         return res.status(404).json({ error: 'Job not found' });
       }
 
+      // Check if the job is visible to the requesting user
+      if (req.user) {
+        const userRole = req.user.role;
+
+        // If user is talent, check if job is approved and not hidden from talent
+        if (userRole === 'talent') {
+          if (job.admin_status !== 'approved' || job.is_hidden_from_talent) {
+            return res.status(404).json({ error: 'Job not found' });
+          }
+        }
+
+        // If user is manager, check if job is theirs or if it's not hidden from managers
+        if (userRole === 'manager') {
+          const ManagerProfile = require('../models/ManagerProfile');
+          const managerProfile = await ManagerProfile.findByUserId(req.user.id);
+
+          if (managerProfile && job.manager_id.toString() === managerProfile._id.toString()) {
+            // Manager can see their own jobs regardless of status
+          } else if (job.is_hidden_from_managers || job.admin_status !== 'approved') {
+            // Other managers can only see approved, non-hidden jobs
+            return res.status(404).json({ error: 'Job not found' });
+          }
+        }
+
+        // Admins can see all jobs
+      } else {
+        // Non-authenticated users can only see approved, non-hidden jobs
+        if (job.admin_status !== 'approved' || job.is_hidden_from_talent) {
+          return res.status(404).json({ error: 'Job not found' });
+        }
+      }
+
       // Format job data with company information
       const formattedJob = {
         id: job._id.toString(),
