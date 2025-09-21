@@ -28,7 +28,7 @@ class JobController {
     body('category').optional().trim().isLength({ max: 100 }),
     body('experience_level').optional().isIn(['entry', 'intermediate', 'expert']),
     body('deadline').optional().isISO8601(),
-    body('status').optional().isIn(['open', 'in_progress', 'completed', 'cancelled'])
+    body('status').optional().isIn(['open', 'in_progress', 'completed', 'cancelled', 'expired'])
   ];
 
   static validateSearchJobs = [
@@ -111,6 +111,10 @@ class JobController {
         return res.status(400).json({ error: 'Budget max cannot be less than budget min' });
       }
 
+      // Check admin settings for auto-approval
+      const adminSettings = await JobController.getJobApprovalSettings();
+      const admin_status = adminSettings.auto_approval ? 'approved' : 'pending';
+
       const finalJobData = {
         manager_id: managerProfile._id,
         title,
@@ -122,7 +126,8 @@ class JobController {
         category,
         deadline,
         experience_level: experience_level || 'intermediate',
-        skills: skills || []
+        skills: skills || [],
+        admin_status
       };
 
       const jobId = await Job.create(finalJobData);
@@ -201,6 +206,10 @@ class JobController {
         return res.status(400).json({ error: 'Budget max cannot be less than budget min' });
       }
 
+      // Check admin settings for auto-approval
+      const adminSettings = await JobController.getJobApprovalSettings();
+      const admin_status = adminSettings.auto_approval ? 'approved' : 'pending';
+
       const jobData = {
         manager_id: managerProfile._id,
         title,
@@ -213,7 +222,8 @@ class JobController {
         deadline,
         experience_level: experience_level || 'intermediate',
         skills: skills || [],
-        is_featured: is_featured
+        is_featured: is_featured,
+        admin_status
       };
 
       // Create the job
@@ -291,6 +301,10 @@ class JobController {
         return res.status(400).json({ error: 'Budget max cannot be less than budget min' });
       }
 
+      // Check admin settings for auto-approval
+      const adminSettings = await JobController.getJobApprovalSettings();
+      const admin_status = adminSettings.auto_approval ? 'approved' : 'pending';
+
       const jobData = {
         manager_id: managerProfile._id,
         title,
@@ -302,7 +316,8 @@ class JobController {
         category,
         deadline,
         experience_level: experience_level || 'intermediate',
-        skills: skills || []
+        skills: skills || [],
+        admin_status
       };
 
       console.log('Creating job with data:', jobData);
@@ -322,9 +337,20 @@ class JobController {
   static async getJob(req, res) {
     try {
       const { id } = req.params;
+      console.log(`Debug getJob: Attempting to find job with ID: ${id}`);
+
+      // Validate ObjectId format
+      const mongoose = require('mongoose');
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        console.log(`Debug getJob: Invalid ObjectId format: ${id}`);
+        return res.status(404).json({ error: 'Invalid job ID format' });
+      }
+
       const job = await Job.findById(id);
+      console.log(`Debug getJob: Job found:`, job ? `Yes (${job._id})` : 'No');
 
       if (!job) {
+        console.log(`Debug getJob: Job ${id} not found in database`);
         return res.status(404).json({ error: 'Job not found' });
       }
 
@@ -344,10 +370,23 @@ class JobController {
           const ManagerProfile = require('../models/ManagerProfile');
           const managerProfile = await ManagerProfile.findByUserId(req.user.id);
 
-          if (managerProfile && job.manager_id.toString() === managerProfile._id.toString()) {
-            // Manager can see their own jobs regardless of status
-          } else if (job.is_hidden_from_managers || job.admin_status !== 'approved') {
-            // Other managers can only see approved, non-hidden jobs
+          if (managerProfile) {
+            // Handle case where manager_id might be populated object or just ObjectId
+            const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
+            const userManagerId = managerProfile._id.toString();
+
+            console.log(`Debug getJob: Comparing jobManagerId (${jobManagerId}) with userManagerId (${userManagerId})`);
+
+            if (jobManagerId === userManagerId) {
+              // Manager can see their own jobs regardless of status
+              console.log(`Debug getJob: Manager viewing their own job`);
+            } else if (job.is_hidden_from_managers || job.admin_status !== 'approved') {
+              // Other managers can only see approved, non-hidden jobs
+              console.log(`Debug getJob: Job not accessible to this manager - admin_status: ${job.admin_status}, hidden: ${job.is_hidden_from_managers}`);
+              return res.status(404).json({ error: 'Job not found' });
+            }
+          } else {
+            console.log(`Debug getJob: No manager profile found for user ${req.user.id}`);
             return res.status(404).json({ error: 'Job not found' });
           }
         }
@@ -371,6 +410,8 @@ class JobController {
         currency: job.currency,
         category: job.category,
         status: job.status || 'open',
+        admin_status: job.admin_status || 'pending',
+        admin_notes: job.admin_notes || null,
         experience_level: job.experience_level,
         created_at: job.created_at,
         updated_at: job.updated_at,
@@ -409,22 +450,32 @@ class JobController {
         return res.status(404).json({ error: 'Job not found' });
       }
 
-      // Check if user owns this job
-      const managerProfile = await ManagerProfile.findByUserId(req.user.id);
+      // Allow admin users to update any job, including orphaned ones
+      if (req.user.role === 'admin') {
+        console.log(`Debug updateJob: Admin user detected, proceeding with update`);
+      } else {
+        // Check if user owns this job (for non-admin users)
+        const managerProfile = await ManagerProfile.findByUserId(req.user.id);
 
-      console.log(`Debug updateJob: User ${req.user.id} trying to update job ${id}`);
-      console.log(`Debug updateJob: Job manager_id type:`, typeof job.manager_id);
-      console.log(`Debug updateJob: User manager profile _id: ${managerProfile?._id}`);
+        console.log(`Debug updateJob: User ${req.user.id} trying to update job ${id}`);
+        console.log(`Debug updateJob: Job manager_id type:`, typeof job.manager_id);
+        console.log(`Debug updateJob: User manager profile _id: ${managerProfile?._id}`);
 
-      // Handle case where manager_id might be populated object or just ObjectId
-      const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
-      const userManagerId = managerProfile._id.toString();
+        if (!managerProfile) {
+          console.log(`Debug updateJob: No manager profile found for user ${req.user.id}`);
+          return res.status(403).json({ error: 'Manager profile not found' });
+        }
 
-      console.log(`Debug updateJob: Comparing jobManagerId (${jobManagerId}) with userManagerId (${userManagerId})`);
+        // Handle case where manager_id might be populated object or just ObjectId
+        const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
+        const userManagerId = managerProfile._id.toString();
 
-      if (!managerProfile || jobManagerId !== userManagerId) {
-        console.log(`Debug updateJob: Authorization failed`);
-        return res.status(403).json({ error: 'Not authorized to update this job' });
+        console.log(`Debug updateJob: Comparing jobManagerId (${jobManagerId}) with userManagerId (${userManagerId})`);
+
+        if (jobManagerId !== userManagerId) {
+          console.log(`Debug updateJob: Authorization failed`);
+          return res.status(403).json({ error: 'Not authorized to update this job' });
+        }
       }
 
       const { budget_min, budget_max } = req.body;
@@ -480,7 +531,7 @@ class JobController {
   static async deleteJob(req, res) {
     try {
       const { id } = req.params;
-      console.log(`Debug deleteJob: Attempting to delete job ${id} for user ${req.user.id}`);
+      console.log(`Debug deleteJob: Attempting to delete job ${id} for user ${req.user.id} (role: ${req.user.role})`);
 
       const job = await Job.findById(id);
 
@@ -491,9 +542,26 @@ class JobController {
 
       console.log(`Debug deleteJob: Found job ${id}, manager_id: ${job.manager_id}`);
 
-      // Check if user owns this job
+      // Allow admin users to delete any job, including orphaned ones
+      if (req.user.role === 'admin') {
+        console.log(`Debug deleteJob: Admin user detected, proceeding with deletion`);
+        const deleted = await Job.deleteJob(id);
+
+        if (!deleted) {
+          console.log(`Debug deleteJob: Delete operation failed for job ${id}`);
+          return res.status(400).json({ error: 'Failed to delete job' });
+        }
+
+        console.log(`Debug deleteJob: Job ${id} deleted successfully by admin`);
+        return res.json({
+          message: 'Job deleted successfully by admin',
+          job_id: id
+        });
+      }
+
+      // Check if user owns this job (for non-admin users)
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
-      console.log(`Debug deleteJob: Manager profile found:`, managerProfile ? `id: ${managerProfile.id}` : 'null');
+      console.log(`Debug deleteJob: Manager profile found:`, managerProfile ? `id: ${managerProfile._id}` : 'null');
 
       if (!managerProfile) {
         console.log(`Debug deleteJob: No manager profile found for user ${req.user.id}`);
@@ -832,6 +900,27 @@ class JobController {
     } catch (error) {
       console.error('Get featured jobs error:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Helper method to get job approval settings
+  static async getJobApprovalSettings() {
+    try {
+      // For now, return default settings. This could be fetched from a settings table
+      // TODO: Implement actual admin settings retrieval from database
+      return {
+        auto_approval: false,
+        requires_manual_review: true,
+        review_time_hours: 24
+      };
+    } catch (error) {
+      console.error('Error getting job approval settings:', error);
+      // Return safe defaults on error
+      return {
+        auto_approval: false,
+        requires_manual_review: true,
+        review_time_hours: 24
+      };
     }
   }
 }

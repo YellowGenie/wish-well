@@ -995,7 +995,7 @@ class AdminController {
       const { id } = req.params;
       const { status } = req.body;
 
-      if (!['open', 'in_progress', 'completed', 'cancelled'].includes(status)) {
+      if (!['open', 'in_progress', 'completed', 'cancelled', 'expired'].includes(status)) {
         return res.status(400).json({ error: 'Invalid job status' });
       }
 
@@ -1005,7 +1005,7 @@ class AdminController {
       }
 
       const success = await Job.update(id, { status });
-      
+
       if (!success) {
         return res.status(400).json({ error: 'Failed to update job status' });
       }
@@ -1013,6 +1013,36 @@ class AdminController {
       res.json({ message: 'Job status updated successfully' });
     } catch (error) {
       console.error('Update job status error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  static async deleteJob(req, res) {
+    try {
+      const { id } = req.params;
+      console.log(`Admin attempting to delete job ${id}`);
+
+      const job = await Job.findById(id);
+      if (!job) {
+        console.log(`Job ${id} not found`);
+        return res.status(404).json({ error: 'Job not found' });
+      }
+
+      console.log(`Found job ${id}, proceeding with admin deletion`);
+      const deleted = await Job.deleteJob(id);
+
+      if (!deleted) {
+        console.log(`Delete operation failed for job ${id}`);
+        return res.status(400).json({ error: 'Failed to delete job' });
+      }
+
+      console.log(`Admin successfully deleted job ${id}`);
+      res.json({
+        message: 'Job deleted successfully by admin',
+        job_id: id
+      });
+    } catch (error) {
+      console.error('Admin delete job error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -2611,7 +2641,7 @@ class AdminController {
   ];
 
   static validateJobStatusUpdate = [
-    body('status').isIn(['open', 'in_progress', 'completed', 'cancelled'])
+    body('status').isIn(['open', 'in_progress', 'completed', 'cancelled', 'expired'])
   ];
 
   // Proposal Management

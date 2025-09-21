@@ -1,4 +1,6 @@
 const express = require('express');
+
+module.exports = (io) => {
 const router = express.Router();
 const AdminNotification = require('../models/AdminNotification');
 const AdminNotificationTemplate = require('../models/AdminNotificationTemplate');
@@ -318,9 +320,8 @@ async function processNotification(notificationId) {
     }
 
     // Update notification status
-    await AdminNotification.update(notificationId, {
-      status: 'active',
-      total_sent: targetUsers.length
+    await AdminNotification.findByIdAndUpdate(notificationId, {
+      status: 'active'
     });
 
   } catch (error) {
@@ -329,11 +330,9 @@ async function processNotification(notificationId) {
   }
 }
 
-// Helper function to send notification to a user (you'll integrate with Socket.io)
+// Helper function to send notification to a user via Socket.io
 async function sendNotificationToUser(notification, user, options = {}) {
   try {
-    // This is where you'd integrate with your Socket.io setup
-    // For now, we'll just log it
     console.log(`Sending notification to user ${user.id}:`, {
       notification_id: notification.id,
       title: notification.title,
@@ -344,15 +343,30 @@ async function sendNotificationToUser(notification, user, options = {}) {
       isTest: options.isTest || false
     });
 
-    // In a real implementation, you would:
-    // 1. Get the user's socket connection
-    // 2. Emit the notification via Socket.io
-    // 3. Store in their notification queue if they're offline
-    
+    // Send real-time notification via Socket.io to user's room
+    const notificationData = {
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      type: 'admin_notification',
+      notification_type: notification.notification_type,
+      priority: notification.priority,
+      display_settings: notification.display_settings,
+      modal_size: notification.modal_size,
+      created_at: notification.created_at || new Date().toISOString(),
+      isTest: options.isTest || false
+    };
+
+    // Emit to the user's specific room
+    io.to(`user_${user.id}`).emit('admin_notification', notificationData);
+
+    console.log(`✅ Real-time notification sent to user_${user.id}`);
+
   } catch (error) {
     console.error('Error sending notification to user:', error);
     throw error;
   }
 }
 
-module.exports = router;
+return router;
+};

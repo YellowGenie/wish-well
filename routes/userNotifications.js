@@ -8,9 +8,9 @@ router.use(auth);
 // Get active notifications for current user
 router.get('/active', async (req, res) => {
   try {
-    // For now, return empty array since notification system isn't fully implemented
-    // This prevents the 404 errors in the frontend
-    res.json([]);
+    // TODO: Implement actual database query for user notifications
+    // For now, return empty array until real notifications are implemented
+    res.json({ notifications: [] });
   } catch (error) {
     console.error('Error fetching active notifications:', error);
     res.status(500).json({ error: 'Failed to fetch notifications' });

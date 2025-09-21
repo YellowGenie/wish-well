@@ -181,7 +181,7 @@ const setupDatabase = async () => {
         budget_min DECIMAL(10,2),
         budget_max DECIMAL(10,2),
         currency VARCHAR(3) DEFAULT 'USD',
-        status ENUM('open', 'in_progress', 'completed', 'cancelled') DEFAULT 'open',
+        status ENUM('open', 'in_progress', 'completed', 'cancelled', 'expired') DEFAULT 'open',
         category VARCHAR(100),
         deadline DATE,
         experience_level ENUM('entry', 'intermediate', 'expert') DEFAULT 'intermediate',

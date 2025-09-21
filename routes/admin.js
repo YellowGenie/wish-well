@@ -77,6 +77,7 @@ router.post('/jobs/bulk-update', [
   body('admin_notes').optional().trim()
 ], AdminController.bulkUpdateJobStatus);
 router.put('/jobs/:id/status', AdminController.validateJobStatusUpdate, AdminController.updateJobStatus);
+router.delete('/jobs/:id', AdminController.deleteJob);
 
 // Admin Settings Management
 router.get('/settings', AdminController.getAdminSettings);

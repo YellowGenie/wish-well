@@ -145,5 +145,12 @@ adminNotificationSchema.statics.getAnalytics = async function(notificationId, da
   };
 };
 
+// Static method to create a new notification
+adminNotificationSchema.statics.create = async function(notificationData) {
+  const notification = new this(notificationData);
+  const savedNotification = await notification.save();
+  return savedNotification._id;
+};
+
 const AdminNotification = mongoose.model('AdminNotification', adminNotificationSchema);
 module.exports = AdminNotification;

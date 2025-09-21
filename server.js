@@ -76,8 +76,7 @@ const adminRoutes = require('./routes/admin');
 const paymentRoutes = require('./routes/payments');
 // const notificationRoutes = require('./routes/notifications'); // Disabled during migration
 const packageRoutes = require('./routes/packages');
-// const adminNotificationRoutes = require('./routes/adminNotifications'); // Disabled during migration
-// const adminNotificationTemplateRoutes = require('./routes/adminNotificationTemplates'); // Disabled during migration  
+const adminNotificationTemplateRoutes = require('./routes/adminNotificationTemplates');
 const userNotificationRoutes = require('./routes/userNotifications');
 const interviewRoutes = require('./routes/interviews');
 const conversationRoutes = require('./routes/conversations');
@@ -123,8 +122,7 @@ app.use(`/api/${API_VERSION}/admin`, adminRoutes);
 app.use(`/api/${API_VERSION}/payments`, paymentRoutes);
 // app.use(`/api/${API_VERSION}/notifications`, notificationRoutes); // Disabled during migration
 app.use(`/api/${API_VERSION}/packages`, packageRoutes);
-// app.use(`/api/${API_VERSION}/admin/notifications`, adminNotificationRoutes); // Disabled during migration
-// app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTemplateRoutes); // Disabled during migration
+app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTemplateRoutes);
 app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes);
 app.use(`/api/${API_VERSION}/interviews`, messageLimiter, interviewRoutes);
 app.use(`/api/${API_VERSION}/conversations`, messageLimiter, conversationRoutes);
@@ -393,6 +391,10 @@ const startServer = async () => {
 
       // Socket.IO middleware and connection handling
       io.use(authenticateSocket);
+
+      // Mount admin notifications route with io instance
+      const adminNotificationRoutes = require('./routes/adminNotifications')(io);
+      app.use(`/api/${API_VERSION}/admin/notifications`, adminNotificationRoutes);
 
       io.on('connection', (socket) => {
         console.log(`🔌 User ${socket.user.id} connected (${socket.user.first_name} ${socket.user.last_name})`);
