@@ -19,13 +19,13 @@ const errorHandler = (err, req, res, next) => {
     return res.status(401).json({ error: 'Token expired' });
   }
 
-  // MySQL/Database errors
-  if (err.code === 'ER_DUP_ENTRY') {
+  // MongoDB/Database errors
+  if (err.code === 11000) {
     return res.status(400).json({ error: 'Duplicate entry' });
   }
 
-  if (err.code === 'ER_NO_REFERENCED_ROW_2') {
-    return res.status(400).json({ error: 'Referenced record does not exist' });
+  if (err.name === 'CastError') {
+    return res.status(400).json({ error: 'Invalid ID format' });
   }
 
   if (err.code === 'ECONNREFUSED') {

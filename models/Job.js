@@ -747,7 +747,14 @@ jobSchema.statics.getTotalNewProposalsForManager = async function(managerId) {
 
 jobSchema.statics.markProposalsAsViewed = async function(jobId, managerId) {
   try {
+    console.log('📍 markProposalsAsViewed called with:', { jobId, managerId });
+
     const Proposal = mongoose.model('Proposal');
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(jobId)) {
+      throw new Error('Invalid job ID format');
+    }
 
     // Verify job ownership
     const job = await this.findById(jobId);
@@ -755,7 +762,11 @@ jobSchema.statics.markProposalsAsViewed = async function(jobId, managerId) {
       throw new Error('Job not found');
     }
 
-    if (job.manager_id.toString() !== managerId.toString()) {
+    console.log('📍 Job found:', { jobId: job._id, managerId: job.manager_id });
+
+    // Handle both ObjectId and populated object cases
+    const jobManagerId = job.manager_id._id || job.manager_id;
+    if (jobManagerId.toString() !== managerId.toString()) {
       throw new Error('Unauthorized: You can only mark proposals as viewed for your own jobs');
     }
 
@@ -770,9 +781,10 @@ jobSchema.statics.markProposalsAsViewed = async function(jobId, managerId) {
       }
     );
 
+    console.log('📍 Proposals updated:', { modifiedCount: result.modifiedCount });
     return result.modifiedCount;
   } catch (error) {
-    console.error('Error marking proposals as viewed:', error);
+    console.error('❌ Error marking proposals as viewed:', error);
     throw error;
   }
 };

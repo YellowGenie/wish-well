@@ -8,9 +8,9 @@ class InterviewController {
   static validateCreateInterview = [
     body('title').trim().isLength({ min: 3, max: 200 }),
     body('description').optional().trim().isLength({ max: 2000 }),
-    body('talent_id').isInt({ min: 1 }),
-    body('job_id').optional().isInt({ min: 1 }),
-    body('proposal_id').optional().isInt({ min: 1 }),
+    body('talent_id').isMongoId(),
+    body('job_id').optional().isMongoId(),
+    body('proposal_id').optional().isMongoId(),
     body('questions').optional().isArray({ min: 1, max: 20 }),
     body('questions.*.text').if(body('questions').exists()).trim().isLength({ min: 5, max: 1000 }),
     body('questions.*.type').if(body('questions').exists()).optional().isIn(['text', 'multiple_choice', 'coding', 'practical']),
@@ -129,8 +129,11 @@ class InterviewController {
       }
 
       // Check if user has access to this interview
-      const hasAccess = interview.manager_user_id === user_id || 
-                       interview.talent_user_id === user_id ||
+      const managerProfile = await ManagerProfile.findByUserId(user_id);
+      const talentProfile = await TalentProfile.findByUserId(user_id);
+
+      const hasAccess = (managerProfile && interview.manager_id.toString() === managerProfile.id.toString()) ||
+                       (talentProfile && interview.talent_id.toString() === talentProfile.id.toString()) ||
                        req.user.role === 'admin';
 
       if (!hasAccess) {
@@ -239,8 +242,11 @@ class InterviewController {
         });
       }
 
-      const hasAccess = interview.manager_user_id === user_id || 
-                       interview.talent_user_id === user_id;
+      const managerProfile = await ManagerProfile.findByUserId(user_id);
+      const talentProfile = await TalentProfile.findByUserId(user_id);
+
+      const hasAccess = (managerProfile && interview.manager_id.toString() === managerProfile.id.toString()) ||
+                       (talentProfile && interview.talent_id.toString() === talentProfile.id.toString());
 
       if (!hasAccess) {
         return res.status(403).json({
@@ -305,7 +311,8 @@ class InterviewController {
         });
       }
 
-      if (interview.talent_user_id !== user_id) {
+      const talentProfile = await TalentProfile.findByUserId(user_id);
+      if (!talentProfile || interview.talent_id.toString() !== talentProfile.id.toString()) {
         return res.status(403).json({
           success: false,
           message: 'Only the interviewee can answer questions'
@@ -365,14 +372,17 @@ class InterviewController {
       }
 
       // Verify rater type matches user role
-      if (rater_type === 'manager' && interview.manager_user_id !== user_id) {
+      const managerProfile = await ManagerProfile.findByUserId(user_id);
+      const talentProfile = await TalentProfile.findByUserId(user_id);
+
+      if (rater_type === 'manager' && (!managerProfile || interview.manager_id.toString() !== managerProfile.id.toString())) {
         return res.status(403).json({
           success: false,
           message: 'Only the interviewing manager can provide manager rating'
         });
       }
 
-      if (rater_type === 'talent' && interview.talent_user_id !== user_id) {
+      if (rater_type === 'talent' && (!talentProfile || interview.talent_id.toString() !== talentProfile.id.toString())) {
         return res.status(403).json({
           success: false,
           message: 'Only the interviewed talent can provide talent rating'
@@ -455,8 +465,11 @@ class InterviewController {
         });
       }
 
-      const hasAccess = interview.manager_user_id === user_id || 
-                       interview.talent_user_id === user_id;
+      const managerProfile = await ManagerProfile.findByUserId(user_id);
+      const talentProfile = await TalentProfile.findByUserId(user_id);
+
+      const hasAccess = (managerProfile && interview.manager_id.toString() === managerProfile.id.toString()) ||
+                       (talentProfile && interview.talent_id.toString() === talentProfile.id.toString());
 
       if (!hasAccess) {
         return res.status(403).json({

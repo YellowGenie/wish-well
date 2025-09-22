@@ -94,14 +94,14 @@ proposalSchema.statics.findById = async function(id) {
 proposalSchema.statics.getProposalsByJob = async function(job_id, page = 1, limit = 20) {
   try {
     const skip = (page - 1) * limit;
-    
+
     const [proposals, total] = await Promise.all([
       this.find({ job_id: new mongoose.Types.ObjectId(job_id) })
         .populate({
           path: 'talent_id',
           populate: {
             path: 'user_id',
-            select: 'first_name last_name email'
+            select: 'first_name last_name'
           }
         })
         .sort({ created_at: -1 })
@@ -110,15 +110,15 @@ proposalSchema.statics.getProposalsByJob = async function(job_id, page = 1, limi
         .lean(),
       this.countDocuments({ job_id: new mongoose.Types.ObjectId(job_id) })
     ]);
-    
+
     // Transform to match original format
     const transformedProposals = proposals.map(p => ({
       ...p,
+      id: p._id.toString(), // Ensure ID is properly set
       talent_title: p.talent_id?.title,
       hourly_rate: p.talent_id?.hourly_rate,
       first_name: p.talent_id?.user_id?.first_name,
       last_name: p.talent_id?.user_id?.last_name,
-      email: p.talent_id?.user_id?.email
     }));
     
     return {
@@ -150,7 +150,7 @@ proposalSchema.statics.getProposalsByTalent = async function(talent_id, page = 1
             path: 'manager_id',
             populate: {
               path: 'user_id',
-              select: 'first_name last_name email'
+              select: 'first_name last_name'
             }
           }
         })
@@ -223,8 +223,9 @@ proposalSchema.statics.updateProposalStatus = async function(proposalId, status,
     throw new Error('Job not found');
   }
 
-  // Verify manager owns this job
-  if (job.manager_id.toString() !== managerId.toString()) {
+  // Verify manager owns this job - handle both ObjectId and populated object cases
+  const jobManagerId = job.manager_id._id || job.manager_id;
+  if (jobManagerId.toString() !== managerId.toString()) {
     throw new Error('Unauthorized: You can only update proposals for your own jobs');
   }
 
@@ -303,7 +304,7 @@ proposalSchema.statics.getProposalsByStatus = async function(job_id, status, pag
           path: 'talent_id',
           populate: {
             path: 'user_id',
-            select: 'first_name last_name email'
+            select: 'first_name last_name'
           }
         })
         .sort({ created_at: -1 })
@@ -319,11 +320,11 @@ proposalSchema.statics.getProposalsByStatus = async function(job_id, status, pag
     // Transform to match original format
     const transformedProposals = proposals.map(p => ({
       ...p,
+      id: p._id.toString(), // Ensure ID is properly set
       talent_title: p.talent_id?.title,
       hourly_rate: p.talent_id?.hourly_rate,
       first_name: p.talent_id?.user_id?.first_name,
       last_name: p.talent_id?.user_id?.last_name,
-      email: p.talent_id?.user_id?.email
     }));
 
     return {

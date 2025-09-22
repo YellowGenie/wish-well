@@ -12,12 +12,12 @@ A comprehensive Node.js API server for the Dozyr remote job marketplace, connect
 - **Admin Dashboard**: Complete platform management and analytics
 - **Skills Management**: Comprehensive skill categorization system
 - **Rate Limiting**: API protection against abuse
-- **Security**: JWT authentication, input validation, SQL injection protection
+- **Security**: JWT authentication, input validation, NoSQL injection protection
 
 ## 🛠 Technology Stack
 
 - **Runtime**: Node.js with Express.js
-- **Database**: MySQL with mysql2 driver
+- **Database**: MongoDB with Mongoose ODM
 - **Authentication**: JWT (JSON Web Tokens)
 - **Security**: Helmet, CORS, bcryptjs, express-rate-limit
 - **Validation**: express-validator
@@ -26,7 +26,7 @@ A comprehensive Node.js API server for the Dozyr remote job marketplace, connect
 ## 📋 Prerequisites
 
 - Node.js (v14 or higher)
-- MySQL (v8.0 or higher)
+- MongoDB (v5.0 or higher) or MongoDB Atlas
 - npm or yarn package manager
 
 ## ⚙️ Installation
@@ -45,27 +45,26 @@ A comprehensive Node.js API server for the Dozyr remote job marketplace, connect
    ```
    NODE_ENV=development
    PORT=3000
-   
-   # Database Configuration
-   DB_HOST=localhost
-   DB_USER=your_mysql_username
-   DB_PASSWORD=your_mysql_password
-   DB_NAME=dozyr_db
-   
+
+   # MongoDB Configuration
+   MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/dozyr_db?retryWrites=true&w=majority&appName=Dozyr
+   MONGO_USER=username
+   MONGO_PASSWORD=password
+   MONGO_DB_NAME=dozyr_db
+
    # JWT Configuration
    JWT_SECRET=your_super_secret_jwt_key_here_make_it_long_and_random
    JWT_EXPIRES_IN=7d
-   
+
    # Admin Configuration
    ADMIN_EMAIL=admin@dozyr.com
    ADMIN_PASSWORD=admin123_change_this
    ```
 
 3. **Database Setup**:
-   Create MySQL database:
-   ```sql
-   CREATE DATABASE dozyr_db;
-   ```
+   Set up MongoDB Atlas or local MongoDB instance:
+   - For MongoDB Atlas: Create cluster and get connection string
+   - For local MongoDB: Install MongoDB Community Server
 
 4. **Initialize Database**:
    ```bash
@@ -135,16 +134,16 @@ Authorization: Bearer <your_jwt_token>
 
 ## 🗃 Database Schema
 
-### Core Tables
+### Core Collections
 - `users` - User accounts with roles
-- `talent_profiles` - Talent-specific information
-- `manager_profiles` - Manager/company information
+- `talentprofiles` - Talent-specific information
+- `managerprofiles` - Manager/company information
 - `jobs` - Job postings
 - `proposals` - Job applications from talents
 - `messages` - Communication between users
 - `skills` - Available skills
-- `talent_skills` - Skills associated with talents
-- `job_skills` - Skills required for jobs
+- `talentskills` - Skills associated with talents
+- `jobskills` - Skills required for jobs
 
 ## 🔧 Configuration
 
@@ -154,10 +153,10 @@ Authorization: Bearer <your_jwt_token>
 |----------|-------------|---------|
 | `NODE_ENV` | Environment mode | `development` |
 | `PORT` | Server port | `3000` |
-| `DB_HOST` | MySQL host | `localhost` |
-| `DB_USER` | MySQL username | - |
-| `DB_PASSWORD` | MySQL password | - |
-| `DB_NAME` | MySQL database name | `dozyr_db` |
+| `MONGO_URI` | MongoDB connection string | - |
+| `MONGO_USER` | MongoDB username | - |
+| `MONGO_PASSWORD` | MongoDB password | - |
+| `MONGO_DB_NAME` | MongoDB database name | `dozyr_db` |
 | `JWT_SECRET` | JWT signing secret | - |
 | `JWT_EXPIRES_IN` | JWT expiration | `7d` |
 | `ADMIN_EMAIL` | Admin user email | `admin@dozyr.com` |
@@ -211,7 +210,7 @@ All errors and important events are logged to the console. In production, consid
 - **Authentication**: JWT with secure secret
 - **Rate Limiting**: Protection against API abuse
 - **Input Validation**: All inputs validated and sanitized
-- **SQL Injection Protection**: Parameterized queries
+- **NoSQL Injection Protection**: Mongoose schema validation and sanitization
 - **CORS**: Configurable cross-origin resource sharing
 - **Helmet**: Security headers
 - **Password Hashing**: bcryptjs with salt rounds

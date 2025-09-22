@@ -41,6 +41,14 @@ const userSchema = new mongoose.Schema({
   email_verified: {
     type: Boolean,
     default: false
+  },
+  profile_completion_modal_dismissed_at: {
+    type: Date,
+    default: null
+  },
+  hide_profile_completion_modal: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: {

@@ -47,9 +47,9 @@ tmp/
 Thumbs.db
 
 # Database
-*.sqlite
-*.sqlite3
-*.db
+# MongoDB dumps
+*.bson
+mongodb_dumps/
 
 # Cache
 .cache/

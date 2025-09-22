@@ -9,56 +9,55 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: dozyr_test
+      mongodb:
+        image: mongo:5.0
         ports:
-          - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+          - 27017:27017
+        options: >-
+          --health-cmd mongosh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
         cache: 'npm'
-    
+
     - name: Install dependencies
       run: npm ci
-    
-    - name: Wait for MySQL
+
+    - name: Wait for MongoDB
       run: |
         for i in {30..0}; do
-          if mysqladmin ping -h"127.0.0.1" --silent; then
+          if mongosh --eval "db.adminCommand('ismaster')" > /dev/null 2>&1; then
             break
           fi
-          echo 'MySQL is unavailable - sleeping'
+          echo 'MongoDB is unavailable - sleeping'
           sleep 1
         done
         if [ "$i" = 0 ]; then
-          echo 'MySQL is unavailable - giving up'
+          echo 'MongoDB is unavailable - giving up'
           exit 1
         fi
-        echo 'MySQL is up - executing command'
+        echo 'MongoDB is up - executing command'
     
     - name: Setup test database
       run: |
-        mysql -h 127.0.0.1 -u root -proot -e "CREATE DATABASE IF NOT EXISTS dozyr_test;"
+        echo "MongoDB test database will be created automatically on first use"
       
     - name: Run tests
       run: npm test
       env:
         NODE_ENV: test
-        DB_HOST: 127.0.0.1
-        DB_USER: root
-        DB_PASSWORD: root
-        DB_NAME: dozyr_test
+        MONGO_URI: mongodb://127.0.0.1:27017/dozyr_test
+        MONGO_DB_NAME: dozyr_test
         JWT_SECRET: test-secret-key
 
   build:

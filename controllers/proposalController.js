@@ -183,41 +183,20 @@ class ProposalController {
       const { job_id } = req.params;
       const { page = 1, limit = 20 } = req.query;
 
-      console.log('=== DEBUG getJobProposals ===');
-      console.log('Job ID:', job_id);
-      console.log('User ID:', req.user?.id);
-
       // Check if job exists and user is the manager
       const job = await Job.findById(job_id);
-      console.log('Job found:', job ? 'Yes' : 'No');
-      if (job) {
-        console.log('Job manager_id:', job.manager_id?.toString());
-      }
 
       if (!job) {
-        console.log('ERROR: Job not found');
         return res.status(404).json({ error: 'Job not found' });
       }
 
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
-      console.log('Manager profile found:', managerProfile ? 'Yes' : 'No');
-      if (managerProfile) {
-        console.log('Manager profile ID:', managerProfile.id);
-        console.log('Manager profile matches job:', job.manager_id.toString() === managerProfile.id.toString());
-      console.log('Job manager_id type:', typeof job.manager_id);
-      console.log('Manager profile id type:', typeof managerProfile.id);
-      console.log('Raw job manager_id:', job.manager_id);
-      console.log('Raw manager profile id:', managerProfile.id);
-      }
 
       // Handle both ObjectId and populated object cases
       const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
       const currentManagerId = managerProfile.id.toString();
 
       if (!managerProfile || jobManagerId !== currentManagerId) {
-        console.log('ERROR: Not authorized - manager profile or job ownership mismatch');
-        console.log('Job manager ID (normalized):', jobManagerId);
-        console.log('Current manager ID:', currentManagerId);
         return res.status(403).json({ error: 'Not authorized to view proposals for this job' });
       }
 

@@ -232,4 +232,76 @@ router.get('/admin/all', auth, requireAdmin, async (req, res) => {
   }
 });
 
+// Dismiss profile completion modal
+router.post('/profile-completion-modal/dismiss', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { permanent = false } = req.body;
+
+    const updateData = {
+      profile_completion_modal_dismissed_at: new Date()
+    };
+
+    if (permanent) {
+      updateData.hide_profile_completion_modal = true;
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: permanent ? 'Profile completion modal permanently dismissed' : 'Profile completion modal dismissed'
+    });
+  } catch (error) {
+    console.error('Dismiss profile completion modal error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to dismiss profile completion modal'
+    });
+  }
+});
+
+// Get profile completion modal status
+router.get('/profile-completion-modal/status', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findById(userId).select(
+      'hide_profile_completion_modal profile_completion_modal_dismissed_at'
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        hide_modal: user.hide_profile_completion_modal,
+        last_dismissed: user.profile_completion_modal_dismissed_at
+      }
+    });
+  } catch (error) {
+    console.error('Get profile completion modal status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get profile completion modal status'
+    });
+  }
+});
+
 module.exports = router;

@@ -1,5 +1,5 @@
 const { logger } = require('./logger');
-const mysql = require('mysql2/promise');
+const mongoose = require('mongoose');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
@@ -16,7 +16,7 @@ class SystemMonitor {
             database: [],
             requests: []
         };
-        
+
         this.thresholds = {
             cpu: 80, // 80%
             memory: 85, // 85%
@@ -24,26 +24,18 @@ class SystemMonitor {
             responseTime: 5000, // 5 seconds
             dbConnections: 80 // 80% of max connections
         };
-        
-        this.connection = null;
     }
 
     async init() {
         await logger.info('Initializing system monitor');
-        
-        // Setup database connection for monitoring
-        try {
-            this.connection = await mysql.createConnection({
-                host: process.env.DB_HOST,
-                user: process.env.DB_USER,
-                password: process.env.DB_PASSWORD,
-                database: process.env.DB_NAME
-            });
-            await logger.info('Database connection established for monitoring');
-        } catch (error) {
-            await logger.error('Failed to establish database connection for monitoring', { error: error.message });
+
+        // MongoDB connection is already handled by the app
+        if (mongoose.connection.readyState === 1) {
+            await logger.info('MongoDB connection available for monitoring');
+        } else {
+            await logger.warn('MongoDB connection not available for monitoring');
         }
-        
+
         // Setup process monitoring
         this.setupProcessMonitoring();
     }
@@ -53,7 +45,7 @@ class SystemMonitor {
         if (global.app) {
             global.app.use((req, res, next) => {
                 const start = Date.now();
-                
+
                 res.on('finish', () => {
                     const duration = Date.now() - start;
                     this.recordRequestMetric({
@@ -64,7 +56,7 @@ class SystemMonitor {
                         timestamp: new Date()
                     });
                 });
-                
+
                 next();
             });
         }
@@ -102,7 +94,7 @@ class SystemMonitor {
         metrics.disk = diskUsage;
 
         // Database metrics
-        if (this.connection) {
+        if (mongoose.connection.readyState === 1) {
             const dbMetrics = await this.collectDatabaseMetrics();
             metrics.database = dbMetrics;
         }
@@ -128,7 +120,7 @@ class SystemMonitor {
         try {
             const appDir = process.cwd();
             const stats = await fs.stat(appDir);
-            
+
             // This is a simplified version - in production you'd want to check actual disk space
             return {
                 used: 0, // Would calculate actual disk usage
@@ -143,27 +135,26 @@ class SystemMonitor {
 
     async collectDatabaseMetrics() {
         try {
-            const [processlist] = await this.connection.execute('SHOW PROCESSLIST');
-            const [status] = await this.connection.execute('SHOW STATUS WHERE Variable_name IN ("Threads_connected", "Max_used_connections", "Aborted_connects")');
-            const [variables] = await this.connection.execute('SHOW VARIABLES WHERE Variable_name = "max_connections"');
-            
-            const statusMap = {};
-            status.forEach(row => {
-                statusMap[row.Variable_name] = parseInt(row.Value);
-            });
-            
-            const maxConnections = parseInt(variables[0]?.Value || 151);
-            const currentConnections = statusMap.Threads_connected || 0;
+            const adminDb = mongoose.connection.db.admin();
+            const dbStats = await mongoose.connection.db.stats();
+            const serverStatus = await adminDb.serverStatus();
+
+            const connections = serverStatus.connections || {};
+            const maxConnections = connections.totalCreated || 1000; // MongoDB default
+            const currentConnections = connections.current || 0;
             const connectionUsage = (currentConnections / maxConnections) * 100;
-            
+
             return {
                 connections: {
                     current: currentConnections,
-                    max: maxConnections,
+                    available: connections.available || 0,
                     usage: connectionUsage
                 },
-                processes: processlist.length,
-                abortedConnects: statusMap.Aborted_connects || 0
+                dataSize: dbStats.dataSize || 0,
+                storageSize: dbStats.storageSize || 0,
+                indexSize: dbStats.indexSize || 0,
+                collections: dbStats.collections || 0,
+                documents: dbStats.objects || 0
             };
         } catch (error) {
             await logger.error('Failed to collect database metrics', { error: error.message });
@@ -177,15 +168,15 @@ class SystemMonitor {
 
         this.metrics.cpu.push({ timestamp: metrics.timestamp, value: metrics.cpu });
         this.metrics.memory.push({ timestamp: metrics.timestamp, value: metrics.memory });
-        
+
         if (metrics.disk) {
             this.metrics.disk.push({ timestamp: metrics.timestamp, value: metrics.disk.percentage });
         }
-        
+
         if (metrics.database) {
-            this.metrics.database.push({ 
-                timestamp: metrics.timestamp, 
-                value: metrics.database.connections?.usage || 0 
+            this.metrics.database.push({
+                timestamp: metrics.timestamp,
+                value: metrics.database.connections?.usage || 0
             });
         }
 
@@ -256,10 +247,10 @@ class SystemMonitor {
     async processAlert(alert) {
         // Add timestamp
         alert.timestamp = new Date();
-        
+
         // Store alert
         this.alerts.push(alert);
-        
+
         // Keep only last 100 alerts
         if (this.alerts.length > 100) {
             this.alerts = this.alerts.slice(-100);
@@ -299,12 +290,12 @@ class SystemMonitor {
         }
 
         await logger.info('Stopping system monitoring');
-        
+
         if (this.monitoringInterval) {
             clearInterval(this.monitoringInterval);
             this.monitoringInterval = null;
         }
-        
+
         this.isMonitoring = false;
     }
 
@@ -316,7 +307,7 @@ class SystemMonitor {
             });
             return result;
         }
-        
+
         return this.metrics[type]?.slice(-limit) || [];
     }
 
@@ -403,11 +394,6 @@ class SystemMonitor {
 
     async cleanup() {
         await this.stopMonitoring();
-        
-        if (this.connection) {
-            await this.connection.end();
-        }
-        
         await logger.info('System monitor cleanup completed');
     }
 }
