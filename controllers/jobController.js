@@ -429,6 +429,18 @@ class JobController {
         }
       };
 
+      // Add proposal count for authenticated managers viewing their own jobs
+      if (req.user && req.user.role === 'manager') {
+        const ManagerProfile = require('../models/ManagerProfile');
+        const Proposal = require('../models/Proposal');
+        const managerProfile = await ManagerProfile.findByUserId(req.user.id);
+
+        if (managerProfile && job.manager_id.toString() === managerProfile._id.toString()) {
+          const proposalCount = await Proposal.countDocuments({ job_id: job._id });
+          formattedJob.applications_count = proposalCount;
+        }
+      }
+
       res.json({ job: formattedJob });
     } catch (error) {
       console.error('Get job error:', error);
@@ -909,16 +921,16 @@ class JobController {
       // For now, return default settings. This could be fetched from a settings table
       // TODO: Implement actual admin settings retrieval from database
       return {
-        auto_approval: false,
-        requires_manual_review: true,
+        auto_approval: true,
+        requires_manual_review: false,
         review_time_hours: 24
       };
     } catch (error) {
       console.error('Error getting job approval settings:', error);
       // Return safe defaults on error
       return {
-        auto_approval: false,
-        requires_manual_review: true,
+        auto_approval: true,
+        requires_manual_review: false,
         review_time_hours: 24
       };
     }

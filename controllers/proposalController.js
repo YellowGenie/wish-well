@@ -6,10 +6,10 @@ const Job = require('../models/Job');
 
 class ProposalController {
   static validateCreateProposal = [
-    body('cover_letter').trim().isLength({ min: 50 }),
-    body('bid_amount').isFloat({ min: 0 }),
-    body('timeline_days').optional().isInt({ min: 1 }),
-    body('draft_offering').optional().trim().isLength({ min: 10 }),
+    body('cover_letter').trim().isLength({ min: 50 }).withMessage('Cover letter must be at least 50 characters long'),
+    body('bid_amount').isFloat({ min: 0 }).withMessage('Bid amount must be a valid positive number'),
+    body('timeline_days').optional().isInt({ min: 1 }).withMessage('Timeline must be at least 1 day'),
+    body('draft_offering').optional().trim().isLength({ min: 10 }).withMessage('Draft offering must be at least 10 characters long'),
     body('pricing_details').optional().trim(),
     body('availability').optional().trim()
   ];
@@ -50,8 +50,14 @@ class ProposalController {
         return res.status(400).json({ error: 'Talent profile not found' });
       }
 
+      // Check if talent has already submitted a proposal for this job
+      const hasExisting = await Proposal.hasExistingProposal(job_id, talentProfile.id);
+      if (hasExisting) {
+        return res.status(400).json({ error: 'You have already submitted a proposal for this job' });
+      }
+
       const proposalData = {
-        job_id: parseInt(job_id),
+        job_id: job_id,
         talent_id: talentProfile.id,
         cover_letter,
         bid_amount,
@@ -70,6 +76,9 @@ class ProposalController {
     } catch (error) {
       if (error.message.includes('already submitted')) {
         return res.status(400).json({ error: error.message });
+      }
+      if (error.code === 11000 && error.message.includes('job_id_1_talent_id_1')) {
+        return res.status(400).json({ error: 'You have already submitted a proposal for this job' });
       }
       console.error('Create proposal error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -174,14 +183,41 @@ class ProposalController {
       const { job_id } = req.params;
       const { page = 1, limit = 20 } = req.query;
 
+      console.log('=== DEBUG getJobProposals ===');
+      console.log('Job ID:', job_id);
+      console.log('User ID:', req.user?.id);
+
       // Check if job exists and user is the manager
       const job = await Job.findById(job_id);
+      console.log('Job found:', job ? 'Yes' : 'No');
+      if (job) {
+        console.log('Job manager_id:', job.manager_id?.toString());
+      }
+
       if (!job) {
+        console.log('ERROR: Job not found');
         return res.status(404).json({ error: 'Job not found' });
       }
 
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
-      if (!managerProfile || job.manager_id !== managerProfile.id) {
+      console.log('Manager profile found:', managerProfile ? 'Yes' : 'No');
+      if (managerProfile) {
+        console.log('Manager profile ID:', managerProfile.id);
+        console.log('Manager profile matches job:', job.manager_id.toString() === managerProfile.id.toString());
+      console.log('Job manager_id type:', typeof job.manager_id);
+      console.log('Manager profile id type:', typeof managerProfile.id);
+      console.log('Raw job manager_id:', job.manager_id);
+      console.log('Raw manager profile id:', managerProfile.id);
+      }
+
+      // Handle both ObjectId and populated object cases
+      const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
+      const currentManagerId = managerProfile.id.toString();
+
+      if (!managerProfile || jobManagerId !== currentManagerId) {
+        console.log('ERROR: Not authorized - manager profile or job ownership mismatch');
+        console.log('Job manager ID (normalized):', jobManagerId);
+        console.log('Current manager ID:', currentManagerId);
         return res.status(403).json({ error: 'Not authorized to view proposals for this job' });
       }
 
@@ -380,7 +416,12 @@ class ProposalController {
       }
 
       const managerProfile = await ManagerProfile.findByUserId(req.user.id);
-      if (!managerProfile || job.manager_id !== managerProfile.id) {
+
+      // Handle both ObjectId and populated object cases
+      const jobManagerId = job.manager_id._id ? job.manager_id._id.toString() : job.manager_id.toString();
+      const currentManagerId = managerProfile ? managerProfile.id.toString() : '';
+
+      if (!managerProfile || jobManagerId !== currentManagerId) {
         return res.status(403).json({ error: 'Not authorized to view proposals for this job' });
       }
 
@@ -399,6 +440,26 @@ class ProposalController {
   }
 
   // Helper method to check if user can access proposal
+  static async getUserProposalForJob(req, res) {
+    try {
+      const { job_id } = req.params;
+
+      // Get talent profile
+      const talentProfile = await TalentProfile.findByUserId(req.user.id);
+      if (!talentProfile) {
+        return res.json({ proposal: null });
+      }
+
+      // Find the user's proposal for this job
+      const proposal = await Proposal.findUserProposalForJob(job_id, talentProfile.id);
+
+      res.json({ proposal });
+    } catch (error) {
+      console.error('Get user proposal for job error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
   static async canUserAccessProposal(proposal, user) {
     try {
       // Check if user is the talent who submitted the proposal

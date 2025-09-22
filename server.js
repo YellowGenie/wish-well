@@ -17,6 +17,10 @@ app.use('*', (req, res, next) => {
     'https://app.dozyr.co',
     'https://filestore.dozyr.co',
     'https://dozyr.netlify.app',
+    'http://localhost:3007',
+    'http://localhost:3006',
+    'http://localhost:3005',
+    'http://localhost:3004',
     'http://localhost:3001',
     'http://localhost:3000'
   ];
@@ -98,8 +102,8 @@ app.use(helmet({
   },
 }));
 
-// Add rate limiting
-app.use(apiLimiter);
+// Add rate limiting (disabled for development)
+// app.use(apiLimiter);
 
 // Static file serving removed - using base64 data URLs for cloud hosting compatibility
 
@@ -126,7 +130,7 @@ app.use(`/api/${API_VERSION}/admin/notification-templates`, adminNotificationTem
 app.use(`/api/${API_VERSION}/user/notifications`, userNotificationRoutes);
 app.use(`/api/${API_VERSION}/interviews`, messageLimiter, interviewRoutes);
 app.use(`/api/${API_VERSION}/conversations`, messageLimiter, conversationRoutes);
-app.use(`/api/${API_VERSION}/users`, apiLimiter, userRoutes);
+app.use(`/api/${API_VERSION}/users`, userRoutes);
 app.use(`/api/${API_VERSION}/files`, fileRoutes);
 app.use(`/api/${API_VERSION}/proxy`, proxyRoutes);
 app.use(`/api/${API_VERSION}/ai`, aiRoutes);

@@ -161,7 +161,7 @@ jobSchema.statics.create = async function({ manager_id, title, description, budg
 };
 
 jobSchema.statics.findById = async function(id) {
-  return await this.findOne({ _id: id })
+  const job = await this.findOne({ _id: id })
     .populate({
       path: 'manager_id',
       populate: {
@@ -170,6 +170,29 @@ jobSchema.statics.findById = async function(id) {
       }
     })
     .populate('skills.skill_id', 'name');
+
+  if (job) {
+    // Get proposal counts
+    const Proposal = require('./Proposal');
+    const proposalCounts = await Proposal.aggregate([
+      { $match: { job_id: job._id } },
+      {
+        $group: {
+          _id: null,
+          total_count: { $sum: 1 },
+          unread_count: { $sum: { $cond: [{ $eq: ['$viewed_by_manager', false] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    const counts = proposalCounts[0] || { total_count: 0, unread_count: 0 };
+
+    // Add counts to job object
+    job.applications_count = counts.total_count;
+    job.new_proposals_count = counts.unread_count;
+  }
+
+  return job;
 };
 
 jobSchema.statics.updateJob = async function(id, updates) {
@@ -335,28 +358,56 @@ jobSchema.statics.getJobsByManager = async function(manager_id, page = 1, limit 
       is_hidden_from_managers: { $ne: true }
     });
 
+    // Get proposal counts for all jobs
+    const Proposal = require('./Proposal');
+    const jobIds = jobs.map(job => job._id);
+
+    const proposalCounts = await Proposal.aggregate([
+      { $match: { job_id: { $in: jobIds } } },
+      {
+        $group: {
+          _id: '$job_id',
+          total_count: { $sum: 1 },
+          unread_count: { $sum: { $cond: [{ $eq: ['$viewed_by_manager', false] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    // Create a map for easy lookup
+    const proposalCountMap = {};
+    proposalCounts.forEach(count => {
+      proposalCountMap[count._id.toString()] = {
+        applications_count: count.total_count,
+        new_proposals_count: count.unread_count
+      };
+    });
+
     // Format jobs for frontend
-    const formattedJobs = jobs.map(job => ({
-      id: job._id.toString(),
-      title: job.title,
-      description: job.description,
-      budget_type: job.budget_type,
-      budget_min: job.budget_min,
-      budget_max: job.budget_max,
-      currency: job.currency,
-      category: job.category,
-      status: job.status || 'open',
-      admin_status: job.admin_status || 'pending',
-      admin_notes: job.admin_notes,
-      is_hidden_from_talent: job.is_hidden_from_talent || false,
-      is_hidden_from_managers: job.is_hidden_from_managers || false,
-      experience_level: job.experience_level,
-      created_at: job.created_at,
-      updated_at: job.updated_at,
-      skills: job.skills?.map(s => s.skill_id?.name).filter(Boolean) || [],
-      applications_count: 0, // TODO: Get real count from proposals
-      new_proposals_count: 0 // TODO: Get real count from unread proposals
-    }));
+    const formattedJobs = jobs.map(job => {
+      const counts = proposalCountMap[job._id.toString()] || { applications_count: 0, new_proposals_count: 0 };
+
+      return {
+        id: job._id.toString(),
+        title: job.title,
+        description: job.description,
+        budget_type: job.budget_type,
+        budget_min: job.budget_min,
+        budget_max: job.budget_max,
+        currency: job.currency,
+        category: job.category,
+        status: job.status || 'open',
+        admin_status: job.admin_status || 'pending',
+        admin_notes: job.admin_notes,
+        is_hidden_from_talent: job.is_hidden_from_talent || false,
+        is_hidden_from_managers: job.is_hidden_from_managers || false,
+        experience_level: job.experience_level,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+        skills: job.skills?.map(s => s.skill_id?.name).filter(Boolean) || [],
+        applications_count: counts.applications_count,
+        new_proposals_count: counts.new_proposals_count
+      };
+    });
 
     return {
       jobs: formattedJobs,
@@ -669,6 +720,59 @@ jobSchema.statics.getJobWithApplications = async function(jobId) {
     };
   } catch (error) {
     console.error('Error getting job with applications:', error);
+    throw error;
+  }
+};
+
+jobSchema.statics.getTotalNewProposalsForManager = async function(managerId) {
+  try {
+    const Proposal = mongoose.model('Proposal');
+
+    // Get all jobs for this manager
+    const jobs = await this.find({ manager_id: managerId }).select('_id');
+    const jobIds = jobs.map(job => job._id);
+
+    // Count all pending proposals for these jobs
+    const count = await Proposal.countDocuments({
+      job_id: { $in: jobIds },
+      status: 'pending'
+    });
+
+    return count || 0;
+  } catch (error) {
+    console.error('Error getting total new proposals for manager:', error);
+    return 0;
+  }
+};
+
+jobSchema.statics.markProposalsAsViewed = async function(jobId, managerId) {
+  try {
+    const Proposal = mongoose.model('Proposal');
+
+    // Verify job ownership
+    const job = await this.findById(jobId);
+    if (!job) {
+      throw new Error('Job not found');
+    }
+
+    if (job.manager_id.toString() !== managerId.toString()) {
+      throw new Error('Unauthorized: You can only mark proposals as viewed for your own jobs');
+    }
+
+    // Mark all proposals for this job as viewed
+    const result = await Proposal.updateMany(
+      {
+        job_id: new mongoose.Types.ObjectId(jobId),
+        viewed_by_manager: false
+      },
+      {
+        $set: { viewed_by_manager: true }
+      }
+    );
+
+    return result.modifiedCount;
+  } catch (error) {
+    console.error('Error marking proposals as viewed:', error);
     throw error;
   }
 };
